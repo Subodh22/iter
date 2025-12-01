@@ -549,33 +549,35 @@ export default function FinanceDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-3xl font-bold">Finance Dashboard</h2>
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-0">
+        <h2 className="text-2xl sm:text-3xl font-bold">Finance Dashboard</h2>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
           <Button 
             variant="outline" 
             onClick={() => setView("sheets")}
-            className="bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200"
+            className="bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 text-xs sm:text-sm flex-1 sm:flex-initial"
           >
-            <ClipboardList className="mr-2 h-4 w-4" />
-            Create Budget Planner
+            <ClipboardList className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+            <span className="hidden sm:inline">Create Budget Planner</span>
+            <span className="sm:hidden">Budget</span>
           </Button>
-          <Button onClick={() => setIsDialogOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Transaction
+          <Button onClick={() => setIsDialogOpen(true)} className="text-xs sm:text-sm flex-1 sm:flex-initial">
+            <Plus className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+            <span className="hidden sm:inline">Add Transaction</span>
+            <span className="sm:hidden">Add</span>
           </Button>
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Starting Budget</CardTitle>
-            <Wallet className="h-4 w-4 text-blue-600" />
+            <CardTitle className="text-xs sm:text-sm font-medium">Starting Budget</CardTitle>
+            <Wallet className="h-3 w-3 sm:h-4 sm:w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              <div className="text-2xl font-bold text-blue-600">
+              <div className="text-lg sm:text-2xl font-bold text-blue-600">
                 ${startingBudget.toFixed(2)}
               </div>
               <Input
@@ -620,11 +622,11 @@ export default function FinanceDashboard() {
                   }
                 }}
                 placeholder="0.00"
-                className="h-8 text-sm"
+                className="h-7 sm:h-8 text-xs sm:text-sm"
                 disabled={isSavingBudget}
               />
               {isSavingBudget && (
-                <p className="text-xs text-muted-foreground">Saving...</p>
+                <p className="text-[10px] sm:text-xs text-muted-foreground">Saving...</p>
               )}
             </div>
           </CardContent>
@@ -632,11 +634,11 @@ export default function FinanceDashboard() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Income</CardTitle>
-            <TrendingUp className="h-4 w-4 text-green-600" />
+            <CardTitle className="text-xs sm:text-sm font-medium">Total Income</CardTitle>
+            <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">
+            <div className="text-lg sm:text-2xl font-bold text-green-600">
               ${totalIncome.toFixed(2)}
             </div>
           </CardContent>
@@ -644,11 +646,11 @@ export default function FinanceDashboard() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
-            <TrendingDown className="h-4 w-4 text-red-600" />
+            <CardTitle className="text-xs sm:text-sm font-medium">Total Expenses</CardTitle>
+            <TrendingDown className="h-3 w-3 sm:h-4 sm:w-4 text-red-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">
+            <div className="text-lg sm:text-2xl font-bold text-red-600">
               ${totalExpenses.toFixed(2)}
             </div>
           </CardContent>
@@ -656,18 +658,18 @@ export default function FinanceDashboard() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Net Balance</CardTitle>
-            <DollarSign className="h-4 w-4" />
+            <CardTitle className="text-xs sm:text-sm font-medium">Net Balance</CardTitle>
+            <DollarSign className="h-3 w-3 sm:h-4 sm:w-4" />
           </CardHeader>
           <CardContent>
             <div
-              className={`text-2xl font-bold ${
+              className={`text-lg sm:text-2xl font-bold ${
                 (startingBudget + balance) >= 0 ? "text-green-600" : "text-red-600"
               }`}
             >
               ${(startingBudget + balance).toFixed(2)}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">
               Starting + Income - Expenses
             </p>
           </CardContent>
@@ -679,16 +681,20 @@ export default function FinanceDashboard() {
         <Button
           variant={view === "calendar" ? "default" : "outline"}
           onClick={() => setView("calendar")}
+          className="text-xs sm:text-sm"
         >
-          <Calendar className="mr-2 h-4 w-4" />
-          Calendar View
+          <Calendar className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+          <span className="hidden sm:inline">Calendar View</span>
+          <span className="sm:hidden">Calendar</span>
         </Button>
         <Button
           variant={view === "sheets" ? "default" : "outline"}
           onClick={() => setView("sheets")}
+          className="text-xs sm:text-sm"
         >
-          <Table2 className="mr-2 h-4 w-4" />
-          Budget Planner
+          <Table2 className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+          <span className="hidden sm:inline">Budget Planner</span>
+          <span className="sm:hidden">Budget</span>
         </Button>
       </div>
 
