@@ -57,23 +57,6 @@ export default function FinanceDashboard() {
   });
   const supabase = createClient();
 
-  useEffect(() => {
-    loadTransactions();
-    cleanupDuplicateTransactions();
-    checkAndGenerateRecurringTransactions();
-    
-    // Listen for budget updates to regenerate transactions
-    const handleBudgetUpdate = () => {
-      checkAndGenerateRecurringTransactions();
-    };
-    
-    window.addEventListener("budgetUpdated", handleBudgetUpdate);
-    
-    return () => {
-      window.removeEventListener("budgetUpdated", handleBudgetUpdate);
-    };
-  }, [loadTransactions, cleanupDuplicateTransactions, checkAndGenerateRecurringTransactions]);
-
   const cleanupDuplicateTransactions = useCallback(async () => {
     const {
       data: { user },
@@ -142,34 +125,7 @@ export default function FinanceDashboard() {
     }
   }, [supabase]);
 
-  const checkAndGenerateRecurringTransactions = useCallback(async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
-
-    // Get all active recurring transactions
-    const { data: recurringTemplates, error: templatesError } = await supabase
-      .from("recurring_transactions")
-      .select("*")
-      .eq("user_id", user.id)
-      .eq("is_active", true);
-
-    if (templatesError || !recurringTemplates) return;
-
-    const now = new Date();
-    const maxFutureDate = addMonths(now, 24); // Generate up to 24 months ahead
-
-    // Check each recurring template and generate missing transactions
-    for (const template of recurringTemplates) {
-      await generateMissingRecurringTransactions(template, maxFutureDate);
-    }
-
-    // Reload transactions after generating
-    await loadTransactions();
-  }, [supabase, loadTransactions]);
-
-  const generateMissingRecurringTransactions = async (
+  const generateMissingRecurringTransactions = useCallback(async (
     template: RecurringTransaction,
     maxDate: Date
   ) => {
@@ -274,7 +230,51 @@ export default function FinanceDashboard() {
           .eq("id", template.id);
       }
     }
-  };
+  }, [supabase]);
+
+  const checkAndGenerateRecurringTransactions = useCallback(async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    // Get all active recurring transactions
+    const { data: recurringTemplates, error: templatesError } = await supabase
+      .from("recurring_transactions")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("is_active", true);
+
+    if (templatesError || !recurringTemplates) return;
+
+    const now = new Date();
+    const maxFutureDate = addMonths(now, 24); // Generate up to 24 months ahead
+
+    // Check each recurring template and generate missing transactions
+    for (const template of recurringTemplates) {
+      await generateMissingRecurringTransactions(template, maxFutureDate);
+    }
+
+    // Reload transactions after generating
+    await loadTransactions();
+  }, [supabase, loadTransactions, generateMissingRecurringTransactions]);
+
+  useEffect(() => {
+    loadTransactions();
+    cleanupDuplicateTransactions();
+    checkAndGenerateRecurringTransactions();
+    
+    // Listen for budget updates to regenerate transactions
+    const handleBudgetUpdate = () => {
+      checkAndGenerateRecurringTransactions();
+    };
+    
+    window.addEventListener("budgetUpdated", handleBudgetUpdate);
+    
+    return () => {
+      window.removeEventListener("budgetUpdated", handleBudgetUpdate);
+    };
+  }, [loadTransactions, cleanupDuplicateTransactions, checkAndGenerateRecurringTransactions]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
