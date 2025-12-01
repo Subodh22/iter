@@ -7,8 +7,8 @@ import { cn } from "@/lib/utils";
 interface PopoverContextValue {
   open: boolean;
   setOpen: (open: boolean) => void;
-  triggerRef: React.RefObject<HTMLElement>;
-  contentRef: React.RefObject<HTMLDivElement>;
+  triggerRef: React.MutableRefObject<HTMLElement | null>;
+  contentRef: React.MutableRefObject<HTMLDivElement | null>;
 }
 
 const PopoverContext = React.createContext<PopoverContextValue | undefined>(undefined);
@@ -21,8 +21,8 @@ interface PopoverProps {
 
 const Popover = ({ children, open: controlledOpen, onOpenChange }: PopoverProps) => {
   const [internalOpen, setInternalOpen] = React.useState(false);
-  const triggerRef = React.useRef<HTMLElement>(null);
-  const contentRef = React.useRef<HTMLDivElement>(null);
+  const triggerRef = React.useRef<HTMLElement | null>(null);
+  const contentRef = React.useRef<HTMLDivElement | null>(null);
   const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
   const setOpen = React.useCallback(
     (newOpen: boolean) => {
@@ -187,13 +187,15 @@ const PopoverContent = React.forwardRef<
   const context = React.useContext(PopoverContext);
   if (!context) throw new Error("PopoverContent must be used within Popover");
 
-  const contentRef = React.useCallback(
-    (node: HTMLDivElement) => {
-      context.contentRef.current = node;
+  const contentRefCallback = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      if (context.contentRef) {
+        context.contentRef.current = node;
+      }
       if (typeof ref === "function") {
         ref(node);
       } else if (ref) {
-        (ref as React.MutableRefObject<HTMLDivElement>).current = node;
+        (ref as React.MutableRefObject<HTMLDivElement | null>).current = node;
       }
     },
     [context, ref]
@@ -206,7 +208,7 @@ const PopoverContent = React.forwardRef<
 
   return createPortal(
     <div
-      ref={contentRef}
+      ref={contentRefCallback}
       data-align={align}
       className={cn(
         "z-50 w-72 rounded-md border bg-popover p-4 text-popover-foreground shadow-md outline-none",

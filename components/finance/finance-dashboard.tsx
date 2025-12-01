@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -72,9 +72,9 @@ export default function FinanceDashboard() {
     return () => {
       window.removeEventListener("budgetUpdated", handleBudgetUpdate);
     };
-  }, []);
+  }, [loadTransactions, cleanupDuplicateTransactions, checkAndGenerateRecurringTransactions]);
 
-  const cleanupDuplicateTransactions = async () => {
+  const cleanupDuplicateTransactions = useCallback(async () => {
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -113,9 +113,9 @@ export default function FinanceDashboard() {
       await supabase.from("transactions").delete().in("id", duplicateIds);
       console.log(`Cleaned up ${duplicateIds.length} duplicate transactions`);
     }
-  };
+  }, [supabase]);
 
-  const loadTransactions = async () => {
+  const loadTransactions = useCallback(async () => {
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -140,9 +140,9 @@ export default function FinanceDashboard() {
     } else {
       setTransactions(data || []);
     }
-  };
+  }, [supabase]);
 
-  const checkAndGenerateRecurringTransactions = async () => {
+  const checkAndGenerateRecurringTransactions = useCallback(async () => {
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -167,7 +167,7 @@ export default function FinanceDashboard() {
 
     // Reload transactions after generating
     await loadTransactions();
-  };
+  }, [supabase, loadTransactions]);
 
   const generateMissingRecurringTransactions = async (
     template: RecurringTransaction,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -172,14 +172,7 @@ export default function BudgetPlanner() {
   const [isLoading, setIsLoading] = useState(true);
   const supabase = createClient();
 
-  // Load existing budget data when month changes
-  useEffect(() => {
-    // Reset to default first
-    setBudgetData(BUDGET_CATEGORIES);
-    loadBudgetData();
-  }, [currentMonth]);
-
-  const loadBudgetData = async () => {
+  const loadBudgetData = useCallback(async () => {
     setIsLoading(true);
     try {
       const {
@@ -252,7 +245,14 @@ export default function BudgetPlanner() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [currentMonth, supabase]);
+
+  // Load existing budget data when month changes
+  useEffect(() => {
+    // Reset to default first
+    setBudgetData(BUDGET_CATEGORIES);
+    loadBudgetData();
+  }, [currentMonth, loadBudgetData]);
 
   // Convert frequency to monthly amount
   const convertToMonthly = (amount: number, frequency: Frequency): number => {
@@ -273,12 +273,12 @@ export default function BudgetPlanner() {
   };
 
   // Calculate category total
-  const getCategoryTotal = (items: BudgetItem[]): number => {
+  const getCategoryTotal = useCallback((items: BudgetItem[]): number => {
     return items.reduce((sum, item) => {
       const monthlyAmount = convertToMonthly(item.amount, item.frequency);
       return sum + monthlyAmount;
     }, 0);
-  };
+  }, []);
 
   // Calculate overall totals
   const totals = useMemo(() => {
@@ -299,7 +299,7 @@ export default function BudgetPlanner() {
       expenses: totalExpenses,
       balance: totalIncome - totalExpenses,
     };
-  }, [budgetData]);
+  }, [budgetData, getCategoryTotal]);
 
   const updateBudgetItem = (
     categoryIndex: number,
