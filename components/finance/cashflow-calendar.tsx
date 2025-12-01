@@ -165,8 +165,17 @@ export default function CashflowCalendar({ transactions, onDateClick, onMonthCha
     
     daysInMonth.forEach((day) => {
       const dayKey = format(day, "yyyy-MM-dd");
-      const cashflow = getDayCashflow(day);
-      balance += cashflow.net;
+      const dayTransactions = transactionsByDate[dayKey] || [];
+      
+      const income = dayTransactions
+        .filter((t) => t.type === "income")
+        .reduce((sum, t) => sum + parseFloat(t.amount.toString()), 0);
+      
+      const expense = dayTransactions
+        .filter((t) => t.type === "expense")
+        .reduce((sum, t) => sum + parseFloat(t.amount.toString()), 0);
+      
+      balance += (income - expense);
       balances[dayKey] = balance;
     });
     
