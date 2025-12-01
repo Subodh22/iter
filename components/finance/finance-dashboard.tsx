@@ -13,6 +13,7 @@ import CashflowCalendar from "./cashflow-calendar";
 import DateTransactionsDialog from "./date-transactions-dialog";
 import RecurringTransactions from "./recurring-transactions";
 import BudgetPlanner from "./budget-planner";
+import CashflowPrediction from "./cashflow-prediction";
 
 interface Transaction {
   id: string;
@@ -719,6 +720,8 @@ export default function FinanceDashboard() {
         <BudgetPlanner />
       )}
 
+      <CashflowPrediction />
+
       <RecurringTransactions />
 
       <Card>
@@ -917,6 +920,9 @@ export default function FinanceDashboard() {
             date: format(date, "yyyy-MM-dd"),
           });
           setIsDialogOpen(true);
+        }}
+        onTransactionDeleted={async () => {
+          await loadTransactions();
         }}
       />
     </div>
