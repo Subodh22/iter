@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -44,12 +44,7 @@ export default function HabitsDashboard() {
   const weekEnd = endOfWeek(new Date(), { weekStartsOn: 1 });
   const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd });
 
-  useEffect(() => {
-    loadHabits();
-    loadHabitLogs();
-  }, []);
-
-  const loadHabits = async () => {
+  const loadHabits = useCallback(async () => {
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -66,9 +61,9 @@ export default function HabitsDashboard() {
     } else {
       setHabits(data || []);
     }
-  };
+  }, [supabase]);
 
-  const loadHabitLogs = async () => {
+  const loadHabitLogs = useCallback(async () => {
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -89,7 +84,12 @@ export default function HabitsDashboard() {
     } else {
       setHabitLogs(data || []);
     }
-  };
+  }, [supabase, weekStart, weekEnd]);
+
+  useEffect(() => {
+    loadHabits();
+    loadHabitLogs();
+  }, [loadHabits, loadHabitLogs]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

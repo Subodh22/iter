@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,11 +26,7 @@ export default function RecurringTransactions() {
   const [loading, setLoading] = useState(false);
   const supabase = createClient();
 
-  useEffect(() => {
-    loadRecurringTransactions();
-  }, []);
-
-  const loadRecurringTransactions = async () => {
+  const loadRecurringTransactions = useCallback(async () => {
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -47,7 +43,11 @@ export default function RecurringTransactions() {
     } else {
       setRecurringTransactions(data || []);
     }
-  };
+  }, [supabase]);
+
+  useEffect(() => {
+    loadRecurringTransactions();
+  }, [loadRecurringTransactions]);
 
   const toggleActive = async (id: string, currentStatus: boolean) => {
     const {

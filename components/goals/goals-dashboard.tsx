@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -36,11 +36,7 @@ export default function GoalsDashboard() {
   });
   const supabase = createClient();
 
-  useEffect(() => {
-    loadGoals();
-  }, []);
-
-  const loadGoals = async () => {
+  const loadGoals = useCallback(async () => {
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -57,7 +53,11 @@ export default function GoalsDashboard() {
     } else {
       setGoals(data || []);
     }
-  };
+  }, [supabase]);
+
+  useEffect(() => {
+    loadGoals();
+  }, [loadGoals]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

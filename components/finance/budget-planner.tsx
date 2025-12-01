@@ -308,7 +308,17 @@ export default function BudgetPlanner() {
     value: number | Frequency | string | undefined
   ) => {
     const newBudgetData = [...budgetData];
-    newBudgetData[categoryIndex].items[itemIndex][field] = value as any;
+    const item = newBudgetData[categoryIndex].items[itemIndex];
+    
+    // Type-safe assignment based on field type
+    if (field === "amount") {
+      item.amount = value as number;
+    } else if (field === "frequency") {
+      item.frequency = value as Frequency;
+    } else if (field === "dueDate") {
+      item.dueDate = value as string | undefined;
+    }
+    
     setBudgetData(newBudgetData);
   };
 
