@@ -168,9 +168,9 @@ const BUDGET_CATEGORIES: BudgetCategory[] = [
 export default function BudgetPlanner() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [budgetData, setBudgetData] = useState<BudgetCategory[]>(BUDGET_CATEGORIES);
-  const [startingBudget, setStartingBudget] = useState<number>(0);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [startingBudget, setStartingBudget] = useState<number>(0);
   const supabase = createClient();
 
   const loadBudgetData = useCallback(async () => {
@@ -180,6 +180,17 @@ export default function BudgetPlanner() {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return;
+
+      // Load starting budget from profile
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("starting_budget")
+        .eq("id", user.id)
+        .single();
+
+      if (profile?.starting_budget) {
+        setStartingBudget(parseFloat(profile.starting_budget.toString()) || 0);
+      }
 
       const monthStart = format(startOfMonth(currentMonth), "yyyy-MM-dd");
       const monthEnd = format(endOfMonth(currentMonth), "yyyy-MM-dd");
@@ -241,22 +252,6 @@ export default function BudgetPlanner() {
       }));
 
       setBudgetData(updatedBudgetData);
-
-      // Load starting budget from budgets table
-      const monthStart = format(startOfMonth(currentMonth), "yyyy-MM-dd");
-      const { data: startingBudgetData } = await supabase
-        .from("budgets")
-        .select("amount")
-        .eq("user_id", user.id)
-        .eq("category", "Starting Budget")
-        .eq("start_date", monthStart)
-        .single();
-
-      if (startingBudgetData) {
-        setStartingBudget(parseFloat(startingBudgetData.amount.toString()));
-      } else {
-        setStartingBudget(0);
-      }
     } catch (error) {
       console.error("Error loading budget:", error);
     } finally {
@@ -314,10 +309,9 @@ export default function BudgetPlanner() {
     return {
       income: totalIncome,
       expenses: totalExpenses,
-      balance: startingBudget + totalIncome - totalExpenses,
-      startingBudget,
+      balance: totalIncome - totalExpenses,
     };
-  }, [budgetData, getCategoryTotal, startingBudget]);
+  }, [budgetData, getCategoryTotal]);
 
   const updateBudgetItem = (
     categoryIndex: number,
@@ -359,28 +353,6 @@ export default function BudgetPlanner() {
       // Save budget items as recurring transactions
       const monthStart = format(startOfMonth(currentMonth), "yyyy-MM-dd");
       const monthEnd = format(endOfMonth(currentMonth), "yyyy-MM-dd");
-
-      // Save starting budget
-      // First, delete existing starting budget for this month
-      await supabase
-        .from("budgets")
-        .delete()
-        .eq("user_id", user.id)
-        .eq("category", "Starting Budget")
-        .eq("start_date", monthStart);
-
-      // Insert new starting budget if it's greater than 0
-      if (startingBudget > 0) {
-        await supabase
-          .from("budgets")
-          .insert({
-            user_id: user.id,
-            category: "Starting Budget",
-            amount: startingBudget,
-            period: "monthly",
-            start_date: monthStart,
-          });
-      }
 
       // Get all existing recurring transactions that match budget categories
       const { data: allExistingTransactions } = await supabase
@@ -597,6 +569,12 @@ export default function BudgetPlanner() {
         }
       }
 
+      // Save starting budget to profile
+      await supabase
+        .from("profiles")
+        .update({ starting_budget: startingBudget })
+        .eq("id", user.id);
+
       alert("Budget saved successfully! Old transactions have been removed and new ones will be generated.");
       
       // Reload budget data to reflect changes
@@ -789,31 +767,46 @@ export default function BudgetPlanner() {
               <div className="text-xl font-bold">Summary</div>
               
               {/* Starting Budget Input */}
-              <div className="p-4 bg-muted/50 rounded-lg">
-                <Label htmlFor="starting-budget" className="text-sm font-medium mb-2 block">
-                  Starting Budget (Initial Amount)
-                </Label>
-                <Input
-                  id="starting-budget"
-                  type="number"
-                  step="0.01"
-                  value={startingBudget || ""}
-                  onChange={(e) => setStartingBudget(parseFloat(e.target.value) || 0)}
-                  placeholder="0.00"
-                  className="max-w-xs"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Enter your starting budget amount for this month
-                </p>
-              </div>
+              <div className="p-4 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex-1">
+                    <Label htmlFor="starting-budget" className="text-sm font-medium">
+                      Starting Budget
+                    </Label>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Your initial budget balance for this month
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="starting-budget"
+                      type="number"
+                      step="0.01"
+                      value={startingBudget || ""}
+                      onChange={(e) => {
+                        const value = parseFloat(e.target.value) || 0;
+                        setStartingBudget(value);
+                      }}
+                      onBlur={async () => {
+                        // Save starting budget when user leaves the input
+                        const {
+                          data: { user },
+                        } = await supabase.auth.getUser();
+                        if (!user) return;
 
-              <div className="grid grid-cols-4 gap-4 p-4 bg-muted/50 rounded-lg">
-                <div className="space-y-1">
-                  <div className="text-sm text-muted-foreground">Starting Budget</div>
-                  <div className="text-2xl font-bold text-blue-600">
-                    ${totals.startingBudget.toFixed(2)}
+                        await supabase
+                          .from("profiles")
+                          .update({ starting_budget: startingBudget })
+                          .eq("id", user.id);
+                      }}
+                      placeholder="0.00"
+                      className="w-32 text-right font-semibold"
+                    />
                   </div>
                 </div>
+              </div>
+
+              <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
                 <div className="space-y-1">
                   <div className="text-sm text-muted-foreground">Total Income</div>
                   <div className="text-2xl font-bold text-green-600">
@@ -827,7 +820,7 @@ export default function BudgetPlanner() {
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <div className="text-sm text-muted-foreground">Final Balance</div>
+                  <div className="text-sm text-muted-foreground">Balance</div>
                   <div
                     className={cn(
                       "text-2xl font-bold",
