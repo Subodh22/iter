@@ -157,6 +157,27 @@ export default function CashflowCalendar({ transactions, onDateClick, onMonthCha
     };
   };
 
+  // Calculate running balance up to a specific date (inclusive)
+  // Memoize for performance
+  const runningBalances = useMemo(() => {
+    const balances: Record<string, number> = {};
+    let balance = startingBudget;
+    
+    daysInMonth.forEach((day) => {
+      const dayKey = format(day, "yyyy-MM-dd");
+      const cashflow = getDayCashflow(day);
+      balance += cashflow.net;
+      balances[dayKey] = balance;
+    });
+    
+    return balances;
+  }, [daysInMonth, startingBudget, transactionsByDate]);
+
+  const getRunningBalance = (date: Date): number => {
+    const dateKey = format(date, "yyyy-MM-dd");
+    return runningBalances[dateKey] ?? startingBudget;
+  };
+
   const previousMonth = () => {
     const newMonth = subMonths(currentMonth, 1);
     setCurrentMonth(newMonth);
@@ -232,6 +253,8 @@ export default function CashflowCalendar({ transactions, onDateClick, onMonthCha
               const dayTransactions = transactionsByDate[format(day, "yyyy-MM-dd")] || [];
               const hasTransactions = dayTransactions.length > 0;
               const isToday = isSameDay(day, new Date());
+              const isSunday = getDay(day) === 0; // Sunday = 0
+              const runningBalance = getRunningBalance(day);
 
               return (
                 <button
@@ -273,6 +296,19 @@ export default function CashflowCalendar({ transactions, onDateClick, onMonthCha
                   >
                     {format(day, "d")}
                   </span>
+                  {/* Show running balance on Sundays */}
+                  {isSunday && (
+                    <div className="w-full mt-1 mb-1">
+                      <div className={cn(
+                        "text-xs font-bold px-1.5 py-1 rounded text-center",
+                        runningBalance >= 0
+                          ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
+                          : "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
+                      )}>
+                        ${runningBalance.toFixed(0)}
+                      </div>
+                    </div>
+                  )}
                    {hasTransactions && (
                      <div className="flex-1 w-full flex flex-col items-start justify-start gap-2 mt-auto">
                        {cashflow.income > 0 && (
