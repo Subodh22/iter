@@ -30,7 +30,7 @@ export default function CashflowCalendar({ transactions, onDateClick, onMonthCha
   const [startingBudget, setStartingBudget] = useState<number>(0);
   const supabase = createClient();
 
-  // Load starting budget from profile
+  // Load starting budget for current month and calculate carryover
   useEffect(() => {
     const loadStartingBudget = async () => {
       const {
@@ -38,19 +38,77 @@ export default function CashflowCalendar({ transactions, onDateClick, onMonthCha
       } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data: profile } = await supabase
-        .from("profiles")
+      const monthKey = format(startOfMonth(currentMonth), "yyyy-MM-01");
+
+      // Try to load starting budget for this month
+      const { data: monthlyBudget } = await supabase
+        .from("monthly_starting_budgets")
         .select("starting_budget")
-        .eq("id", user.id)
+        .eq("user_id", user.id)
+        .eq("month", monthKey)
         .single();
 
-      if (profile?.starting_budget) {
-        setStartingBudget(parseFloat(profile.starting_budget.toString()) || 0);
+      if (monthlyBudget?.starting_budget !== undefined) {
+        setStartingBudget(parseFloat(monthlyBudget.starting_budget.toString()) || 0);
+      } else {
+        // If no starting budget exists for this month, calculate from previous month
+        const previousMonth = subMonths(currentMonth, 1);
+        const previousMonthKey = format(startOfMonth(previousMonth), "yyyy-MM-01");
+        const previousMonthEnd = endOfMonth(previousMonth);
+        const previousMonthStart = startOfMonth(previousMonth);
+
+        // Get previous month's starting budget
+        const { data: prevMonthlyBudget } = await supabase
+          .from("monthly_starting_budgets")
+          .select("starting_budget")
+          .eq("user_id", user.id)
+          .eq("month", previousMonthKey)
+          .single();
+
+        const prevStartingBudget = prevMonthlyBudget?.starting_budget 
+          ? parseFloat(prevMonthlyBudget.starting_budget.toString()) 
+          : 0;
+
+        // Calculate previous month's transactions
+        const { data: prevTransactions } = await supabase
+          .from("transactions")
+          .select("type, amount")
+          .eq("user_id", user.id)
+          .gte("date", format(previousMonthStart, "yyyy-MM-dd"))
+          .lte("date", format(previousMonthEnd, "yyyy-MM-dd"));
+
+        let prevIncome = 0;
+        let prevExpenses = 0;
+
+        if (prevTransactions) {
+          prevIncome = prevTransactions
+            .filter((t) => t.type === "income")
+            .reduce((sum, t) => sum + parseFloat(t.amount.toString()), 0);
+          
+          prevExpenses = prevTransactions
+            .filter((t) => t.type === "expense")
+            .reduce((sum, t) => sum + parseFloat(t.amount.toString()), 0);
+        }
+
+        // Calculate ending balance (carryover)
+        const endingBalance = prevStartingBudget + prevIncome - prevExpenses;
+
+        // Set as starting budget for current month
+        setStartingBudget(endingBalance);
+
+        // Save to database
+        await supabase
+          .from("monthly_starting_budgets")
+          .upsert({
+            user_id: user.id,
+            month: monthKey,
+            starting_budget: endingBalance,
+          });
       }
     };
 
     loadStartingBudget();
-  }, [supabase]);
+  }, [currentMonth, supabase]);
 
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
@@ -279,10 +337,15 @@ export default function CashflowCalendar({ transactions, onDateClick, onMonthCha
                       } = await supabase.auth.getUser();
                       if (!user) return;
 
+                      const monthKey = format(startOfMonth(currentMonth), "yyyy-MM-01");
+
                       await supabase
-                        .from("profiles")
-                        .update({ starting_budget: startingBudget })
-                        .eq("id", user.id);
+                        .from("monthly_starting_budgets")
+                        .upsert({
+                          user_id: user.id,
+                          month: monthKey,
+                          starting_budget: startingBudget,
+                        });
                     }}
                     placeholder="0.00"
                     className="w-32 text-right font-semibold"
