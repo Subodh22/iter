@@ -168,6 +168,7 @@ const BUDGET_CATEGORIES: BudgetCategory[] = [
 export default function BudgetPlanner() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [budgetData, setBudgetData] = useState<BudgetCategory[]>(BUDGET_CATEGORIES);
+  const [startingBudget, setStartingBudget] = useState<number>(0);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const supabase = createClient();
@@ -240,6 +241,22 @@ export default function BudgetPlanner() {
       }));
 
       setBudgetData(updatedBudgetData);
+
+      // Load starting budget from budgets table
+      const monthStart = format(startOfMonth(currentMonth), "yyyy-MM-dd");
+      const { data: startingBudgetData } = await supabase
+        .from("budgets")
+        .select("amount")
+        .eq("user_id", user.id)
+        .eq("category", "Starting Budget")
+        .eq("start_date", monthStart)
+        .single();
+
+      if (startingBudgetData) {
+        setStartingBudget(parseFloat(startingBudgetData.amount.toString()));
+      } else {
+        setStartingBudget(0);
+      }
     } catch (error) {
       console.error("Error loading budget:", error);
     } finally {
@@ -297,9 +314,10 @@ export default function BudgetPlanner() {
     return {
       income: totalIncome,
       expenses: totalExpenses,
-      balance: totalIncome - totalExpenses,
+      balance: startingBudget + totalIncome - totalExpenses,
+      startingBudget,
     };
-  }, [budgetData, getCategoryTotal]);
+  }, [budgetData, getCategoryTotal, startingBudget]);
 
   const updateBudgetItem = (
     categoryIndex: number,
@@ -341,6 +359,28 @@ export default function BudgetPlanner() {
       // Save budget items as recurring transactions
       const monthStart = format(startOfMonth(currentMonth), "yyyy-MM-dd");
       const monthEnd = format(endOfMonth(currentMonth), "yyyy-MM-dd");
+
+      // Save starting budget
+      // First, delete existing starting budget for this month
+      await supabase
+        .from("budgets")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("category", "Starting Budget")
+        .eq("start_date", monthStart);
+
+      // Insert new starting budget if it's greater than 0
+      if (startingBudget > 0) {
+        await supabase
+          .from("budgets")
+          .insert({
+            user_id: user.id,
+            category: "Starting Budget",
+            amount: startingBudget,
+            period: "monthly",
+            start_date: monthStart,
+          });
+      }
 
       // Get all existing recurring transactions that match budget categories
       const { data: allExistingTransactions } = await supabase
@@ -745,9 +785,35 @@ export default function BudgetPlanner() {
 
           {/* Summary */}
           <div className="border-t-2 border-red-500 pt-4 mt-6">
-            <div className="space-y-2">
+            <div className="space-y-4">
               <div className="text-xl font-bold">Summary</div>
-              <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+              
+              {/* Starting Budget Input */}
+              <div className="p-4 bg-muted/50 rounded-lg">
+                <Label htmlFor="starting-budget" className="text-sm font-medium mb-2 block">
+                  Starting Budget (Initial Amount)
+                </Label>
+                <Input
+                  id="starting-budget"
+                  type="number"
+                  step="0.01"
+                  value={startingBudget || ""}
+                  onChange={(e) => setStartingBudget(parseFloat(e.target.value) || 0)}
+                  placeholder="0.00"
+                  className="max-w-xs"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Enter your starting budget amount for this month
+                </p>
+              </div>
+
+              <div className="grid grid-cols-4 gap-4 p-4 bg-muted/50 rounded-lg">
+                <div className="space-y-1">
+                  <div className="text-sm text-muted-foreground">Starting Budget</div>
+                  <div className="text-2xl font-bold text-blue-600">
+                    ${totals.startingBudget.toFixed(2)}
+                  </div>
+                </div>
                 <div className="space-y-1">
                   <div className="text-sm text-muted-foreground">Total Income</div>
                   <div className="text-2xl font-bold text-green-600">
@@ -761,7 +827,7 @@ export default function BudgetPlanner() {
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <div className="text-sm text-muted-foreground">Balance</div>
+                  <div className="text-sm text-muted-foreground">Final Balance</div>
                   <div
                     className={cn(
                       "text-2xl font-bold",
