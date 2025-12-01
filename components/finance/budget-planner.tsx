@@ -182,7 +182,7 @@ export default function BudgetPlanner() {
       if (!user) return;
 
       // Load starting budget for current month
-      const monthKey = format(startOfMonth(currentMonth), "yyyy-MM-01");
+      const monthKey = format(startOfMonth(currentMonth), "yyyy-MM-dd");
       const { data: monthlyBudget } = await supabase
         .from("monthly_starting_budgets")
         .select("starting_budget")
@@ -195,7 +195,7 @@ export default function BudgetPlanner() {
       } else {
         // If no starting budget exists, calculate from previous month's ending balance
         const previousMonth = subMonths(currentMonth, 1);
-        const previousMonthKey = format(startOfMonth(previousMonth), "yyyy-MM-01");
+        const previousMonthKey = format(startOfMonth(previousMonth), "yyyy-MM-dd");
         const previousMonthEnd = endOfMonth(previousMonth);
         const previousMonthStart = startOfMonth(previousMonth);
 
@@ -319,6 +319,19 @@ export default function BudgetPlanner() {
     setBudgetData(BUDGET_CATEGORIES);
     loadBudgetData();
   }, [currentMonth, loadBudgetData]);
+
+  // Listen for recurring transaction deletions to reload budget data
+  useEffect(() => {
+    const handleRecurringTransactionDeleted = () => {
+      loadBudgetData();
+    };
+    
+    window.addEventListener("recurringTransactionDeleted", handleRecurringTransactionDeleted);
+    
+    return () => {
+      window.removeEventListener("recurringTransactionDeleted", handleRecurringTransactionDeleted);
+    };
+  }, [loadBudgetData]);
 
   // Convert frequency to monthly amount
   const convertToMonthly = (amount: number, frequency: Frequency): number => {
@@ -624,7 +637,7 @@ export default function BudgetPlanner() {
       }
 
       // Save starting budget for current month
-      const monthKey = format(startOfMonth(currentMonth), "yyyy-MM-01");
+      const monthKey = format(startOfMonth(currentMonth), "yyyy-MM-dd");
       await supabase
         .from("monthly_starting_budgets")
         .upsert({
@@ -852,15 +865,25 @@ export default function BudgetPlanner() {
                         } = await supabase.auth.getUser();
                         if (!user) return;
 
-                        const monthKey = format(startOfMonth(currentMonth), "yyyy-MM-01");
+                        const monthKey = format(startOfMonth(currentMonth), "yyyy-MM-dd");
 
-                        await supabase
+                        const { error: saveError } = await supabase
                           .from("monthly_starting_budgets")
                           .upsert({
                             user_id: user.id,
                             month: monthKey,
                             starting_budget: startingBudget,
+                          }, {
+                            onConflict: "user_id,month"
                           });
+
+                        if (saveError) {
+                          console.error("Error saving starting budget:", saveError);
+                          alert("Failed to save starting budget. Please try again.");
+                        } else {
+                          // Reload budget data to show updated starting budget
+                          await loadBudgetData();
+                        }
                       }}
                       placeholder="0.00"
                       className="w-32 text-right font-semibold"

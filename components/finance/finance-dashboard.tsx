@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, TrendingUp, TrendingDown, DollarSign, Calendar, Table2, ClipboardList } from "lucide-react";
+import { Plus, TrendingUp, TrendingDown, DollarSign, Calendar, Table2, ClipboardList, Wallet } from "lucide-react";
 import { format, startOfMonth, endOfMonth, subMonths, addMonths } from "date-fns";
 import CashflowCalendar from "./cashflow-calendar";
 import DateTransactionsDialog from "./date-transactions-dialog";
@@ -45,6 +45,8 @@ export default function FinanceDashboard() {
   const [isDateDialogOpen, setIsDateDialogOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState<Date>(new Date());
   const [view, setView] = useState<"calendar" | "sheets">("calendar");
+  const [startingBudget, setStartingBudget] = useState<number>(0);
+  const [isSavingBudget, setIsSavingBudget] = useState(false);
   const [formData, setFormData] = useState({
     type: "expense" as "income" | "expense",
     category: "",
@@ -259,22 +261,111 @@ export default function FinanceDashboard() {
     await loadTransactions();
   }, [supabase, loadTransactions, generateMissingRecurringTransactions]);
 
+  // Load starting budget for the current calendar month
+  const loadStartingBudget = useCallback(async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const monthKey = format(startOfMonth(calendarMonth), "yyyy-MM-dd");
+
+    // Try to load starting budget for this month
+    const { data: monthlyBudget, error } = await supabase
+      .from("monthly_starting_budgets")
+      .select("starting_budget")
+      .eq("user_id", user.id)
+      .eq("month", monthKey)
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+      console.error("Error loading starting budget:", error);
+    }
+
+    if (monthlyBudget?.starting_budget !== undefined) {
+      setStartingBudget(parseFloat(monthlyBudget.starting_budget.toString()) || 0);
+    } else {
+      // If no starting budget exists for this month, calculate from previous month
+      const previousMonth = subMonths(calendarMonth, 1);
+      const previousMonthKey = format(startOfMonth(previousMonth), "yyyy-MM-dd");
+      const previousMonthEnd = endOfMonth(previousMonth);
+      const previousMonthStart = startOfMonth(previousMonth);
+
+      // Get previous month's starting budget
+      const { data: prevMonthlyBudget } = await supabase
+        .from("monthly_starting_budgets")
+        .select("starting_budget")
+        .eq("user_id", user.id)
+        .eq("month", previousMonthKey)
+        .single();
+
+      const prevStartingBudget = prevMonthlyBudget?.starting_budget 
+        ? parseFloat(prevMonthlyBudget.starting_budget.toString()) 
+        : 0;
+
+      // Calculate previous month's transactions
+      const { data: prevTransactions } = await supabase
+        .from("transactions")
+        .select("type, amount")
+        .eq("user_id", user.id)
+        .gte("date", format(previousMonthStart, "yyyy-MM-dd"))
+        .lte("date", format(previousMonthEnd, "yyyy-MM-dd"));
+
+      let prevIncome = 0;
+      let prevExpenses = 0;
+
+      if (prevTransactions) {
+        prevIncome = prevTransactions
+          .filter((t) => t.type === "income")
+          .reduce((sum, t) => sum + parseFloat(t.amount.toString()), 0);
+        
+        prevExpenses = prevTransactions
+          .filter((t) => t.type === "expense")
+          .reduce((sum, t) => sum + parseFloat(t.amount.toString()), 0);
+      }
+
+      // Calculate ending balance (carryover)
+      const endingBalance = prevStartingBudget + prevIncome - prevExpenses;
+
+      // Set as starting budget for current month
+      setStartingBudget(endingBalance);
+
+      // Save to database
+      await supabase
+        .from("monthly_starting_budgets")
+        .upsert({
+          user_id: user.id,
+          month: monthKey,
+          starting_budget: endingBalance,
+        });
+    }
+  }, [calendarMonth, supabase]);
+
   useEffect(() => {
     loadTransactions();
     cleanupDuplicateTransactions();
     checkAndGenerateRecurringTransactions();
+    loadStartingBudget();
     
     // Listen for budget updates to regenerate transactions
     const handleBudgetUpdate = () => {
       checkAndGenerateRecurringTransactions();
+      loadStartingBudget();
+    };
+    
+    // Listen for recurring transaction deletions to reload transactions
+    const handleRecurringTransactionDeleted = () => {
+      loadTransactions();
     };
     
     window.addEventListener("budgetUpdated", handleBudgetUpdate);
+    window.addEventListener("recurringTransactionDeleted", handleRecurringTransactionDeleted);
     
     return () => {
       window.removeEventListener("budgetUpdated", handleBudgetUpdate);
+      window.removeEventListener("recurringTransactionDeleted", handleRecurringTransactionDeleted);
     };
-  }, [loadTransactions, cleanupDuplicateTransactions, checkAndGenerateRecurringTransactions]);
+  }, [loadTransactions, cleanupDuplicateTransactions, checkAndGenerateRecurringTransactions, loadStartingBudget]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -476,7 +567,69 @@ export default function FinanceDashboard() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Starting Budget</CardTitle>
+            <Wallet className="h-4 w-4 text-blue-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              <div className="text-2xl font-bold text-blue-600">
+                ${startingBudget.toFixed(2)}
+              </div>
+              <Input
+                type="number"
+                step="0.01"
+                value={startingBudget || ""}
+                onChange={(e) => {
+                  const value = parseFloat(e.target.value) || 0;
+                  setStartingBudget(value);
+                }}
+                onBlur={async () => {
+                  setIsSavingBudget(true);
+                  try {
+                    const {
+                      data: { user },
+                    } = await supabase.auth.getUser();
+                    if (!user) return;
+
+                    const monthKey = format(startOfMonth(calendarMonth), "yyyy-MM-dd");
+
+                    const { error } = await supabase
+                      .from("monthly_starting_budgets")
+                      .upsert({
+                        user_id: user.id,
+                        month: monthKey,
+                        starting_budget: startingBudget,
+                      }, {
+                        onConflict: "user_id,month"
+                      });
+
+                    if (error) {
+                      console.error("Error saving starting budget:", error);
+                      alert("Failed to save starting budget. Please try again.");
+                    } else {
+                      // Reload to ensure we have the latest value
+                      await loadStartingBudget();
+                      // Trigger update in calendar
+                      window.dispatchEvent(new CustomEvent("startingBudgetUpdated"));
+                    }
+                  } finally {
+                    setIsSavingBudget(false);
+                  }
+                }}
+                placeholder="0.00"
+                className="h-8 text-sm"
+                disabled={isSavingBudget}
+              />
+              {isSavingBudget && (
+                <p className="text-xs text-muted-foreground">Saving...</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Income</CardTitle>
@@ -503,17 +656,20 @@ export default function FinanceDashboard() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Balance</CardTitle>
+            <CardTitle className="text-sm font-medium">Net Balance</CardTitle>
             <DollarSign className="h-4 w-4" />
           </CardHeader>
           <CardContent>
             <div
               className={`text-2xl font-bold ${
-                balance >= 0 ? "text-green-600" : "text-red-600"
+                (startingBudget + balance) >= 0 ? "text-green-600" : "text-red-600"
               }`}
             >
-              ${balance.toFixed(2)}
+              ${(startingBudget + balance).toFixed(2)}
             </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Starting + Income - Expenses
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -549,6 +705,8 @@ export default function FinanceDashboard() {
             setCalendarMonth(month);
             // When calendar month changes, check and generate missing recurring transactions
             await checkAndGenerateRecurringTransactions();
+            // Reload starting budget for the new month
+            await loadStartingBudget();
           }}
         />
       ) : (

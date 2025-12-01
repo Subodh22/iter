@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, getDay } from "date-fns";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,32 +28,36 @@ interface CashflowCalendarProps {
 export default function CashflowCalendar({ transactions, onDateClick, onMonthChange }: CashflowCalendarProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [startingBudget, setStartingBudget] = useState<number>(0);
+  const [isSavingBudget, setIsSavingBudget] = useState(false);
   const supabase = createClient();
 
   // Load starting budget for current month and calculate carryover
-  useEffect(() => {
-    const loadStartingBudget = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
+  const loadStartingBudget = useCallback(async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
 
-      const monthKey = format(startOfMonth(currentMonth), "yyyy-MM-01");
+    const monthKey = format(startOfMonth(currentMonth), "yyyy-MM-dd");
 
-      // Try to load starting budget for this month
-      const { data: monthlyBudget } = await supabase
-        .from("monthly_starting_budgets")
-        .select("starting_budget")
-        .eq("user_id", user.id)
-        .eq("month", monthKey)
-        .single();
+    // Try to load starting budget for this month
+    const { data: monthlyBudget, error } = await supabase
+      .from("monthly_starting_budgets")
+      .select("starting_budget")
+      .eq("user_id", user.id)
+      .eq("month", monthKey)
+      .single();
 
-      if (monthlyBudget?.starting_budget !== undefined) {
-        setStartingBudget(parseFloat(monthlyBudget.starting_budget.toString()) || 0);
-      } else {
+    if (error && error.code !== 'PGRST116') {
+      console.error("Error loading starting budget:", error);
+    }
+
+    if (monthlyBudget?.starting_budget !== undefined) {
+      setStartingBudget(parseFloat(monthlyBudget.starting_budget.toString()) || 0);
+    } else {
         // If no starting budget exists for this month, calculate from previous month
         const previousMonth = subMonths(currentMonth, 1);
-        const previousMonthKey = format(startOfMonth(previousMonth), "yyyy-MM-01");
+        const previousMonthKey = format(startOfMonth(previousMonth), "yyyy-MM-dd");
         const previousMonthEnd = endOfMonth(previousMonth);
         const previousMonthStart = startOfMonth(previousMonth);
 
@@ -105,10 +109,22 @@ export default function CashflowCalendar({ transactions, onDateClick, onMonthCha
             starting_budget: endingBalance,
           });
       }
-    };
-
-    loadStartingBudget();
   }, [currentMonth, supabase]);
+
+  useEffect(() => {
+    loadStartingBudget();
+    
+    // Listen for starting budget updates from dashboard
+    const handleStartingBudgetUpdate = () => {
+      loadStartingBudget();
+    };
+    
+    window.addEventListener("startingBudgetUpdated", handleStartingBudgetUpdate);
+    
+    return () => {
+      window.removeEventListener("startingBudgetUpdated", handleStartingBudgetUpdate);
+    };
+  }, [loadStartingBudget]);
 
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
@@ -366,35 +382,56 @@ export default function CashflowCalendar({ transactions, onDateClick, onMonthCha
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Input
-                    id="starting-budget-calendar"
-                    type="number"
-                    step="0.01"
-                    value={startingBudget || ""}
-                    onChange={(e) => {
-                      const value = parseFloat(e.target.value) || 0;
-                      setStartingBudget(value);
-                    }}
-                    onBlur={async () => {
-                      // Save starting budget when user leaves the input
-                      const {
-                        data: { user },
-                      } = await supabase.auth.getUser();
-                      if (!user) return;
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="starting-budget-calendar"
+                      type="number"
+                      step="0.01"
+                      value={startingBudget || ""}
+                      onChange={(e) => {
+                        const value = parseFloat(e.target.value) || 0;
+                        setStartingBudget(value);
+                      }}
+                      onBlur={async () => {
+                        // Save starting budget when user leaves the input
+                        setIsSavingBudget(true);
+                        try {
+                          const {
+                            data: { user },
+                          } = await supabase.auth.getUser();
+                          if (!user) return;
 
-                      const monthKey = format(startOfMonth(currentMonth), "yyyy-MM-01");
+                          const monthKey = format(startOfMonth(currentMonth), "yyyy-MM-dd");
 
-                      await supabase
-                        .from("monthly_starting_budgets")
-                        .upsert({
-                          user_id: user.id,
-                          month: monthKey,
-                          starting_budget: startingBudget,
-                        });
-                    }}
-                    placeholder="0.00"
-                    className="w-32 text-right font-semibold"
-                  />
+                          const { error } = await supabase
+                            .from("monthly_starting_budgets")
+                            .upsert({
+                              user_id: user.id,
+                              month: monthKey,
+                              starting_budget: startingBudget,
+                            }, {
+                              onConflict: "user_id,month"
+                            });
+
+                          if (error) {
+                            console.error("Error saving starting budget:", error);
+                            alert("Failed to save starting budget. Please try again.");
+                          } else {
+                            // Reload to ensure we have the latest value
+                            await loadStartingBudget();
+                          }
+                        } finally {
+                          setIsSavingBudget(false);
+                        }
+                      }}
+                      placeholder="0.00"
+                      className="w-32 text-right font-semibold"
+                      disabled={isSavingBudget}
+                    />
+                    {isSavingBudget && (
+                      <span className="text-xs text-muted-foreground">Saving...</span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

@@ -68,7 +68,7 @@ export default function RecurringTransactions() {
   };
 
   const deleteRecurring = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this recurring transaction?")) {
+    if (!confirm("Are you sure you want to delete this recurring transaction? This will also delete all transactions generated from this template.")) {
       return;
     }
 
@@ -77,6 +77,20 @@ export default function RecurringTransactions() {
     } = await supabase.auth.getUser();
     if (!user) return;
 
+    // First, delete all transactions associated with this recurring template
+    const { error: deleteTransactionsError } = await supabase
+      .from("transactions")
+      .delete()
+      .eq("recurring_template_id", id)
+      .eq("user_id", user.id);
+
+    if (deleteTransactionsError) {
+      console.error("Error deleting associated transactions:", deleteTransactionsError);
+      alert("Failed to delete associated transactions. Please try again.");
+      return;
+    }
+
+    // Then delete the recurring transaction template
     const { error } = await supabase
       .from("recurring_transactions")
       .delete()
@@ -84,8 +98,11 @@ export default function RecurringTransactions() {
 
     if (error) {
       console.error("Error deleting recurring transaction:", error);
+      alert("Failed to delete recurring transaction. Please try again.");
     } else {
       loadRecurringTransactions();
+      // Trigger a custom event to notify the finance dashboard to reload transactions
+      window.dispatchEvent(new CustomEvent("recurringTransactionDeleted"));
     }
   };
 
