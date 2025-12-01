@@ -1,11 +1,14 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, getDay } from "date-fns";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ChevronLeft, ChevronRight, ArrowUp, ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 
 interface Transaction {
   id: string;
@@ -24,6 +27,30 @@ interface CashflowCalendarProps {
 
 export default function CashflowCalendar({ transactions, onDateClick, onMonthChange }: CashflowCalendarProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [startingBudget, setStartingBudget] = useState<number>(0);
+  const supabase = createClient();
+
+  // Load starting budget from profile
+  useEffect(() => {
+    const loadStartingBudget = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("starting_budget")
+        .eq("id", user.id)
+        .single();
+
+      if (profile?.starting_budget) {
+        setStartingBudget(parseFloat(profile.starting_budget.toString()) || 0);
+      }
+    };
+
+    loadStartingBudget();
+  }, [supabase]);
 
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
@@ -224,7 +251,53 @@ export default function CashflowCalendar({ transactions, onDateClick, onMonthCha
 
           {/* Monthly Summary */}
           <div className="pt-4 border-t">
-            <div className="grid grid-cols-3 gap-4 text-center">
+            {/* Starting Budget Input */}
+            <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex-1">
+                  <Label htmlFor="starting-budget-calendar" className="text-sm font-medium">
+                    Starting Budget
+                  </Label>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Your initial budget balance for this month
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="starting-budget-calendar"
+                    type="number"
+                    step="0.01"
+                    value={startingBudget || ""}
+                    onChange={(e) => {
+                      const value = parseFloat(e.target.value) || 0;
+                      setStartingBudget(value);
+                    }}
+                    onBlur={async () => {
+                      // Save starting budget when user leaves the input
+                      const {
+                        data: { user },
+                      } = await supabase.auth.getUser();
+                      if (!user) return;
+
+                      await supabase
+                        .from("profiles")
+                        .update({ starting_budget: startingBudget })
+                        .eq("id", user.id);
+                    }}
+                    placeholder="0.00"
+                    className="w-32 text-right font-semibold"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-4 gap-4 text-center">
+              <div>
+                <p className="text-xs text-muted-foreground">Starting Budget</p>
+                <p className="text-lg font-bold text-blue-600">
+                  ${startingBudget.toFixed(2)}
+                </p>
+              </div>
               <div>
                 <p className="text-xs text-muted-foreground">Total Income</p>
                 <p className="text-lg font-bold text-green-600">
@@ -254,17 +327,17 @@ export default function CashflowCalendar({ transactions, onDateClick, onMonthCha
                 <p
                   className={cn(
                     "text-lg font-bold",
-                    daysInMonth.reduce(
+                    (startingBudget + daysInMonth.reduce(
                       (sum, day) => sum + getDayCashflow(day).net,
                       0
-                    ) >= 0
+                    )) >= 0
                       ? "text-green-600"
                       : "text-red-600"
                   )}
                 >
                   $
-                  {daysInMonth
-                    .reduce((sum, day) => sum + getDayCashflow(day).net, 0)
+                  {(startingBudget + daysInMonth
+                    .reduce((sum, day) => sum + getDayCashflow(day).net, 0))
                     .toFixed(2)}
                 </p>
               </div>
