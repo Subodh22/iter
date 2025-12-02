@@ -67,11 +67,19 @@ export default function FinanceDashboard() {
     } = await supabase.auth.getUser();
     if (!user) return;
 
+    // Only check recent transactions (last 6 months) to avoid loading too much data
+    // This makes cleanup much faster while still catching most duplicates
+    const now = new Date();
+    const sixMonthsAgo = format(startOfMonth(subMonths(now, 6)), "yyyy-MM-dd");
+    const futureDate = format(endOfMonth(addMonths(now, 12)), "yyyy-MM-dd");
+
     // Find and remove duplicate transactions (same category, date, amount, type)
     const { data: transactions, error } = await supabase
       .from("transactions")
       .select("*")
       .eq("user_id", user.id)
+      .gte("date", sixMonthsAgo)
+      .lte("date", futureDate)
       .order("date", { ascending: false });
 
     if (error || !transactions) return;
@@ -102,17 +110,21 @@ export default function FinanceDashboard() {
     }
   }, [supabase]);
 
-  const loadTransactions = useCallback(async () => {
+  const loadTransactions = useCallback(async (extendedRange: boolean = false) => {
     const {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
 
-    // Load transactions for a wider range (12 months back and 24 months forward) 
-    // to support calendar navigation to any month
     const now = new Date();
-    const startDate = format(startOfMonth(subMonths(now, 12)), "yyyy-MM-dd");
-    const endDate = format(endOfMonth(addMonths(now, 24)), "yyyy-MM-dd");
+    
+    // For initial load, use smaller range for faster loading
+    // For extended navigation, load wider range
+    const monthsBack = extendedRange ? 12 : 3;
+    const monthsForward = extendedRange ? 24 : 6;
+    
+    const startDate = format(startOfMonth(subMonths(now, monthsBack)), "yyyy-MM-dd");
+    const endDate = format(endOfMonth(addMonths(now, monthsForward)), "yyyy-MM-dd");
 
     const { data, error } = await supabase
       .from("transactions")
@@ -389,11 +401,28 @@ export default function FinanceDashboard() {
   useEffect(() => {
     const loadInitialData = async () => {
       setIsLoading(true);
-      await loadTransactions();
-      await cleanupDuplicateTransactions();
-      await checkAndGenerateRecurringTransactions();
-      await loadStartingBudget();
+      
+      // Load critical data first in parallel - this is what users need to see immediately
+      await Promise.all([
+        loadTransactions(),
+        loadStartingBudget()
+      ]);
+      
+      // Show UI as soon as critical data is loaded - don't wait for cleanup/generation
       setIsLoading(false);
+      
+      // Run non-critical operations in background (don't block UI)
+      // These can happen after the UI is shown and won't delay the initial render
+      (async () => {
+        // Generate recurring transactions first (needed for accurate data)
+        await checkAndGenerateRecurringTransactions();
+        
+        // Then reload transactions with extended range and cleanup duplicates
+        await Promise.all([
+          loadTransactions(true), // Load extended range
+          cleanupDuplicateTransactions()
+        ]);
+      })();
     };
     
     loadInitialData();
@@ -809,8 +838,8 @@ export default function FinanceDashboard() {
             // When calendar month changes, first generate missing recurring transactions
             // This ensures all recurring transactions are created before calculating starting budget
             await checkAndGenerateRecurringTransactions(month);
-            // Reload transactions to get the latest data including newly generated ones
-            await loadTransactions();
+            // Reload transactions with extended range to support navigation to any month
+            await loadTransactions(true);
             // Small delay to ensure database is updated
             await new Promise(resolve => setTimeout(resolve, 100));
             // Load starting budget - check if exists first (preserves manual edits)
