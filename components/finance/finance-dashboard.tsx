@@ -48,6 +48,7 @@ export default function FinanceDashboard() {
   const [view, setView] = useState<"calendar" | "sheets">("calendar");
   const [startingBudget, setStartingBudget] = useState<number>(0);
   const [isSavingBudget, setIsSavingBudget] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [formData, setFormData] = useState({
     type: "expense" as "income" | "expense",
     category: "",
@@ -126,6 +127,7 @@ export default function FinanceDashboard() {
     } else {
       setTransactions(data || []);
     }
+    return !error;
   }, [supabase]);
 
   const generateMissingRecurringTransactions = useCallback(async (
@@ -235,7 +237,7 @@ export default function FinanceDashboard() {
     }
   }, [supabase]);
 
-  const checkAndGenerateRecurringTransactions = useCallback(async () => {
+  const checkAndGenerateRecurringTransactions = useCallback(async (targetMonth?: Date) => {
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -251,102 +253,150 @@ export default function FinanceDashboard() {
     if (templatesError || !recurringTemplates) return;
 
     const now = new Date();
-    const maxFutureDate = addMonths(now, 24); // Generate up to 24 months ahead
+    // Generate up to 24 months ahead from now, or at least to the end of the target month
+    const targetMonthEnd = targetMonth ? endOfMonth(targetMonth) : now;
+    const maxFutureDate = addMonths(now, 24);
+    // Use the later date to ensure we cover both the target month and future months
+    const finalMaxDate = maxFutureDate > targetMonthEnd ? maxFutureDate : addMonths(targetMonthEnd, 12);
 
     // Check each recurring template and generate missing transactions
     for (const template of recurringTemplates) {
-      await generateMissingRecurringTransactions(template, maxFutureDate);
+      await generateMissingRecurringTransactions(template, finalMaxDate);
     }
 
     // Reload transactions after generating
     await loadTransactions();
-  }, [supabase, loadTransactions, generateMissingRecurringTransactions]);
+  }, [supabase, loadTransactions, generateMissingRecurringTransactions, calendarMonth]);
+
+  // Helper function to calculate starting budget for a month
+  // Finance rule: Starting Budget of Month N = Ending Balance of Month N-1
+  // Ending Balance = Starting Budget + Income - Expenses
+  // NOTE: This function ONLY calculates - it does NOT check for existing budgets
+  // The caller (loadStartingBudget) is responsible for checking if a budget exists first
+  const calculateStartingBudgetForMonth = useCallback(async (targetMonth: Date): Promise<number> => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return 0;
+
+    const monthKey = format(startOfMonth(targetMonth), "yyyy-MM-dd");
+    const previousMonth = subMonths(targetMonth, 1);
+    const previousMonthKey = format(startOfMonth(previousMonth), "yyyy-MM-dd");
+    const previousMonthEnd = endOfMonth(previousMonth);
+    const previousMonthStart = startOfMonth(previousMonth);
+
+    // Get previous month's starting budget (recursively if needed)
+    let prevStartingBudget = 0;
+    const { data: prevMonthlyBudget } = await supabase
+      .from("monthly_starting_budgets")
+      .select("starting_budget")
+      .eq("user_id", user.id)
+      .eq("month", previousMonthKey)
+      .single();
+
+    if (prevMonthlyBudget?.starting_budget !== undefined) {
+      prevStartingBudget = parseFloat(prevMonthlyBudget.starting_budget.toString());
+    } else {
+      // Recursively calculate previous month's starting budget if it doesn't exist
+      prevStartingBudget = await calculateStartingBudgetForMonth(previousMonth);
+    }
+
+    // Get ALL transactions for the previous month to calculate ending balance
+    const { data: prevTransactions } = await supabase
+      .from("transactions")
+      .select("type, amount")
+      .eq("user_id", user.id)
+      .gte("date", format(previousMonthStart, "yyyy-MM-dd"))
+      .lte("date", format(previousMonthEnd, "yyyy-MM-dd"))
+      .order("date", { ascending: true });
+
+    let prevIncome = 0;
+    let prevExpenses = 0;
+
+    if (prevTransactions && prevTransactions.length > 0) {
+      prevIncome = prevTransactions
+        .filter((t) => t.type === "income")
+        .reduce((sum, t) => sum + parseFloat(t.amount.toString()), 0);
+      
+      prevExpenses = prevTransactions
+        .filter((t) => t.type === "expense")
+        .reduce((sum, t) => sum + parseFloat(t.amount.toString()), 0);
+    }
+
+    // Calculate previous month's ending balance
+    // Ending Balance = Starting Budget + Income - Expenses
+    const previousMonthEndingBalance = prevStartingBudget + prevIncome - prevExpenses;
+
+    // This month's starting budget = previous month's ending balance
+    const thisMonthStartingBudget = previousMonthEndingBalance;
+
+    // Save the calculated budget to database
+    await supabase
+      .from("monthly_starting_budgets")
+      .upsert({
+        user_id: user.id,
+        month: monthKey,
+        starting_budget: thisMonthStartingBudget,
+      }, {
+        onConflict: "user_id,month"
+      });
+
+    return thisMonthStartingBudget;
+  }, [supabase]);
 
   // Load starting budget for the current calendar month
-  const loadStartingBudget = useCallback(async () => {
+  // Logic: 
+  //   - If forceRecalculate is true: Always recalculate from previous month's ending balance (for navigation)
+  //   - If forceRecalculate is false: Check if budget exists, use it if it does (preserves manual edits)
+  //   - This ensures net balance is correctly carried over when navigating months
+  const loadStartingBudget = useCallback(async (month?: Date, forceRecalculate: boolean = false) => {
     const {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
 
-    const monthKey = format(startOfMonth(calendarMonth), "yyyy-MM-dd");
+    const targetMonth = month || calendarMonth;
+    const monthKey = format(startOfMonth(targetMonth), "yyyy-MM-dd");
 
-    // Try to load starting budget for this month
-    const { data: monthlyBudget, error } = await supabase
-      .from("monthly_starting_budgets")
-      .select("starting_budget")
-      .eq("user_id", user.id)
-      .eq("month", monthKey)
-      .single();
-
-    if (error && error.code !== 'PGRST116') {
-      console.error("Error loading starting budget:", error);
-    }
-
-    if (monthlyBudget?.starting_budget !== undefined) {
-      setStartingBudget(parseFloat(monthlyBudget.starting_budget.toString()) || 0);
-    } else {
-      // If no starting budget exists for this month, calculate from previous month
-      const previousMonth = subMonths(calendarMonth, 1);
-      const previousMonthKey = format(startOfMonth(previousMonth), "yyyy-MM-dd");
-      const previousMonthEnd = endOfMonth(previousMonth);
-      const previousMonthStart = startOfMonth(previousMonth);
-
-      // Get previous month's starting budget
-      const { data: prevMonthlyBudget } = await supabase
+    // If not forcing recalculation, check if budget exists first
+    if (!forceRecalculate) {
+      const { data: existingBudget, error } = await supabase
         .from("monthly_starting_budgets")
         .select("starting_budget")
         .eq("user_id", user.id)
-        .eq("month", previousMonthKey)
+        .eq("month", monthKey)
         .single();
 
-      const prevStartingBudget = prevMonthlyBudget?.starting_budget 
-        ? parseFloat(prevMonthlyBudget.starting_budget.toString()) 
-        : 0;
-
-      // Calculate previous month's transactions
-      const { data: prevTransactions } = await supabase
-        .from("transactions")
-        .select("type, amount")
-        .eq("user_id", user.id)
-        .gte("date", format(previousMonthStart, "yyyy-MM-dd"))
-        .lte("date", format(previousMonthEnd, "yyyy-MM-dd"));
-
-      let prevIncome = 0;
-      let prevExpenses = 0;
-
-      if (prevTransactions) {
-        prevIncome = prevTransactions
-          .filter((t) => t.type === "income")
-          .reduce((sum, t) => sum + parseFloat(t.amount.toString()), 0);
-        
-        prevExpenses = prevTransactions
-          .filter((t) => t.type === "expense")
-          .reduce((sum, t) => sum + parseFloat(t.amount.toString()), 0);
+      if (error && error.code !== 'PGRST116') {
+        console.error("Error loading starting budget:", error);
       }
 
-      // Calculate ending balance (carryover)
-      const endingBalance = prevStartingBudget + prevIncome - prevExpenses;
-
-      // Set as starting budget for current month
-      setStartingBudget(endingBalance);
-
-      // Save to database
-      await supabase
-        .from("monthly_starting_budgets")
-        .upsert({
-          user_id: user.id,
-          month: monthKey,
-          starting_budget: endingBalance,
-        });
+      // If budget exists, use it (preserves manual edits)
+      if (existingBudget?.starting_budget !== undefined) {
+        const savedBudget = parseFloat(existingBudget.starting_budget.toString()) || 0;
+        setStartingBudget(savedBudget);
+        return true;
+      }
     }
-  }, [calendarMonth, supabase]);
+
+    // Recalculate from previous month's ending balance
+    // This ensures accurate net balance carryover
+    const calculatedBudget = await calculateStartingBudgetForMonth(targetMonth);
+    setStartingBudget(calculatedBudget);
+    return true;
+  }, [supabase, calculateStartingBudgetForMonth, calendarMonth]);
 
   useEffect(() => {
-    loadTransactions();
-    cleanupDuplicateTransactions();
-    checkAndGenerateRecurringTransactions();
-    loadStartingBudget();
+    const loadInitialData = async () => {
+      setIsLoading(true);
+      await loadTransactions();
+      await cleanupDuplicateTransactions();
+      await checkAndGenerateRecurringTransactions();
+      await loadStartingBudget();
+      setIsLoading(false);
+    };
+    
+    loadInitialData();
     
     // Listen for budget updates to regenerate transactions
     const handleBudgetUpdate = () => {
@@ -570,17 +620,34 @@ export default function FinanceDashboard() {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-xs sm:text-sm font-medium">Starting Budget</CardTitle>
-            <Wallet className="h-3 w-3 sm:h-4 sm:w-4 text-blue-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              <div className="text-lg sm:text-2xl font-bold text-blue-600">
-                ${startingBudget.toFixed(2)}
-              </div>
+      {isLoading ? (
+        <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i}>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-xs sm:text-sm font-medium animate-pulse bg-muted h-4 w-24 rounded"></CardTitle>
+                <div className="h-3 w-3 sm:h-4 sm:w-4 bg-muted rounded animate-pulse"></div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  <div className="text-lg sm:text-2xl font-bold bg-muted h-8 w-20 rounded animate-pulse"></div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-xs sm:text-sm font-medium">Starting Budget</CardTitle>
+              <Wallet className="h-3 w-3 sm:h-4 sm:w-4 text-blue-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                <div className="text-lg sm:text-2xl font-bold text-blue-600">
+                  ${startingBudget.toFixed(2)}
+                </div>
               <Input
                 type="number"
                 step="0.01"
@@ -590,34 +657,62 @@ export default function FinanceDashboard() {
                   setStartingBudget(value);
                 }}
                 onBlur={async () => {
+                  // Only save if value actually changed
+                  const currentValue = startingBudget;
+                  
                   setIsSavingBudget(true);
                   try {
                     const {
                       data: { user },
                     } = await supabase.auth.getUser();
-                    if (!user) return;
+                    if (!user) {
+                      setIsSavingBudget(false);
+                      return;
+                    }
 
                     const monthKey = format(startOfMonth(calendarMonth), "yyyy-MM-dd");
 
-                    const { error } = await supabase
+                    // Save the starting budget
+                    const { data, error } = await supabase
                       .from("monthly_starting_budgets")
                       .upsert({
                         user_id: user.id,
                         month: monthKey,
-                        starting_budget: startingBudget,
+                        starting_budget: currentValue,
                       }, {
                         onConflict: "user_id,month"
-                      });
+                      })
+                      .select();
 
                     if (error) {
                       console.error("Error saving starting budget:", error);
-                      alert("Failed to save starting budget. Please try again.");
+                      alert(`Failed to save starting budget: ${error.message}`);
+                      // Reload to restore correct value on error
+                      await loadStartingBudget(calendarMonth, false);
                     } else {
-                      // Reload to ensure we have the latest value
-                      await loadStartingBudget();
-                      // Trigger update in calendar
+                      // Verify it was saved
+                      const { data: verifyBudget } = await supabase
+                        .from("monthly_starting_budgets")
+                        .select("starting_budget")
+                        .eq("user_id", user.id)
+                        .eq("month", monthKey)
+                        .single();
+                      
+                      if (verifyBudget) {
+                        const savedValue = parseFloat(verifyBudget.starting_budget.toString());
+                        console.log("Starting budget saved successfully:", savedValue);
+                        // Ensure state matches saved value
+                        if (Math.abs(savedValue - currentValue) > 0.01) {
+                          setStartingBudget(savedValue);
+                        }
+                      }
+                      
+                      // Trigger update in calendar to sync
                       window.dispatchEvent(new CustomEvent("startingBudgetUpdated"));
                     }
+                  } catch (err) {
+                    console.error("Unexpected error saving starting budget:", err);
+                    alert("An unexpected error occurred while saving. Please try again.");
                   } finally {
                     setIsSavingBudget(false);
                   }
@@ -676,6 +771,7 @@ export default function FinanceDashboard() {
           </CardContent>
         </Card>
       </div>
+      )}
 
       {/* View Toggle */}
       <div className="flex items-center justify-end gap-2 mb-4">
@@ -710,10 +806,16 @@ export default function FinanceDashboard() {
           onMonthChange={async (month: Date) => {
             // Update the calendar month state
             setCalendarMonth(month);
-            // When calendar month changes, check and generate missing recurring transactions
-            await checkAndGenerateRecurringTransactions();
-            // Reload starting budget for the new month
-            await loadStartingBudget();
+            // When calendar month changes, first generate missing recurring transactions
+            // This ensures all recurring transactions are created before calculating starting budget
+            await checkAndGenerateRecurringTransactions(month);
+            // Reload transactions to get the latest data including newly generated ones
+            await loadTransactions();
+            // Small delay to ensure database is updated
+            await new Promise(resolve => setTimeout(resolve, 100));
+            // Load starting budget - check if exists first (preserves manual edits)
+            // Only recalculate if no budget exists (ensures net balance carryover for new months)
+            await loadStartingBudget(month, false);
           }}
         />
       ) : (
