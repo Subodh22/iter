@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { format } from "date-fns";
+import { format, addDays, addWeeks, addMonths, addYears, isBefore, parseISO } from "date-fns";
 import { Repeat, Trash2, Pause, Play } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -123,6 +123,71 @@ export default function RecurringTransactions() {
     }
   };
 
+  // Calculate the next occurrence date from today based on frequency and start date pattern
+  const calculateNextOccurrence = (startDate: string, frequency: string, endDate?: string): Date => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Reset to start of day
+    
+    const start = parseISO(startDate);
+    start.setHours(0, 0, 0, 0);
+    
+    // If there's an end date and it's in the past, return end date
+    if (endDate) {
+      const end = parseISO(endDate);
+      end.setHours(0, 0, 0, 0);
+      if (isBefore(end, today)) {
+        return end;
+      }
+    }
+
+    // If start date is in the future, return start date
+    if (isBefore(today, start)) {
+      return start;
+    }
+
+    // Calculate next occurrence based on frequency from the start date pattern
+    let nextDate = new Date(start);
+    
+    // Keep adding intervals until we get a date >= today
+    while (isBefore(nextDate, today)) {
+      switch (frequency) {
+        case "daily":
+          nextDate = addDays(nextDate, 1);
+          break;
+        case "weekly":
+          nextDate = addWeeks(nextDate, 1);
+          break;
+        case "fortnight":
+          nextDate = addWeeks(nextDate, 2);
+          break;
+        case "monthly":
+          nextDate = addMonths(nextDate, 1);
+          break;
+        case "yearly":
+          nextDate = addYears(nextDate, 1);
+          break;
+        default:
+          return start;
+      }
+      
+      // Safety check to prevent infinite loop
+      if (nextDate.getTime() > today.getTime() + 365 * 24 * 60 * 60 * 1000) {
+        return start;
+      }
+    }
+
+    // If there's an end date and calculated date is after it, return end date
+    if (endDate) {
+      const end = parseISO(endDate);
+      end.setHours(0, 0, 0, 0);
+      if (isBefore(end, nextDate)) {
+        return end;
+      }
+    }
+
+    return nextDate;
+  };
+
   if (recurringTransactions.length === 0) {
     return null;
   }
@@ -172,7 +237,7 @@ export default function RecurringTransactions() {
                   <span>•</span>
                   <span>{getFrequencyLabel(rt.frequency)}</span>
                   <span>•</span>
-                  <span>Next: {format(new Date(rt.next_occurrence), "MMM dd, yyyy")}</span>
+                  <span>Next: {format(calculateNextOccurrence(rt.start_date, rt.frequency, rt.end_date), "MMM dd, yyyy")}</span>
                 </div>
               </div>
               <div className="flex items-center gap-2">
