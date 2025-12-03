@@ -664,17 +664,17 @@ export default function BudgetPlanner() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div>
-            <CardTitle>Budget Planner</CardTitle>
-            <CardDescription>{format(currentMonth, "MMMM yyyy")}</CardDescription>
+            <CardTitle className="text-lg sm:text-xl">Budget Planner</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">{format(currentMonth, "MMMM yyyy")}</CardDescription>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 w-full sm:w-auto">
+            <div className="hidden sm:flex items-center gap-2">
               <Label htmlFor="view-select" className="text-sm">View:</Label>
               <select
                 id="view-select"
-                className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="flex h-9 sm:h-10 rounded-md border border-input bg-background px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm"
                 value="monthly"
               >
                 <option value="monthly">Monthly</option>
@@ -682,8 +682,8 @@ export default function BudgetPlanner() {
             </div>
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="outline" size="icon" className="relative">
-                  <CalendarIcon className="h-4 w-4" />
+                <Button variant="outline" size="icon" className="h-8 w-8 sm:h-10 sm:w-10">
+                  <CalendarIcon className="h-3 w-3 sm:h-4 sm:w-4" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0" align="end">
@@ -699,15 +699,16 @@ export default function BudgetPlanner() {
                 />
               </PopoverContent>
             </Popover>
-            <Button variant="outline" size="icon" onClick={previousMonth}>
-              <ChevronLeft className="h-4 w-4" />
+            <Button variant="outline" size="icon" className="h-8 w-8 sm:h-10 sm:w-10" onClick={previousMonth}>
+              <ChevronLeft className="h-3 w-3 sm:h-4 sm:w-4" />
             </Button>
-            <Button variant="outline" size="icon" onClick={nextMonth}>
-              <ChevronRight className="h-4 w-4" />
+            <Button variant="outline" size="icon" className="h-8 w-8 sm:h-10 sm:w-10" onClick={nextMonth}>
+              <ChevronRight className="h-3 w-3 sm:h-4 sm:w-4" />
             </Button>
-            <Button onClick={saveBudget} disabled={isSaving}>
-              <Save className="mr-2 h-4 w-4" />
-              {isSaving ? "Saving..." : "Save Budget"}
+            <Button onClick={saveBudget} disabled={isSaving} className="h-8 sm:h-10 text-xs sm:text-sm px-2 sm:px-4 flex-1 sm:flex-initial">
+              <Save className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+              <span className="hidden sm:inline">{isSaving ? "Saving..." : "Save Budget"}</span>
+              <span className="sm:hidden">{isSaving ? "Saving..." : "Save"}</span>
             </Button>
           </div>
         </div>
@@ -725,108 +726,208 @@ export default function BudgetPlanner() {
               <div key={category.name} className="space-y-2">
                 <div
                   className={cn(
-                    "flex items-center justify-between px-4 py-2 rounded-t-lg text-white font-bold",
+                    "flex items-center justify-between px-2 sm:px-4 py-2 rounded-t-lg text-white font-bold text-sm sm:text-base",
                     category.color
                   )}
                 >
-                  <span>{category.name}</span>
-                  <span>
+                  <span className="truncate">{category.name}</span>
+                  <span className="ml-2 whitespace-nowrap">
                     {isIncome ? "+" : "-"}${Math.abs(categoryTotal).toFixed(2)}
                   </span>
                 </div>
                 <div className="border rounded-b-lg overflow-hidden">
-                  <div className="grid grid-cols-12 gap-2 p-2 bg-muted/50 font-medium text-sm">
-                    <div className="col-span-4">Category</div>
-                    <div className="col-span-2 text-right">$</div>
-                    <div className="col-span-2">Frequency</div>
-                    <div className="col-span-2">Due Date</div>
-                    <div className="col-span-2 text-right">Monthly</div>
+                  {/* Desktop Table Layout */}
+                  <div className="hidden sm:block">
+                    <div className="grid grid-cols-12 gap-2 p-2 bg-muted/50 font-medium text-sm">
+                      <div className="col-span-4">Category</div>
+                      <div className="col-span-2 text-right">$</div>
+                      <div className="col-span-2">Frequency</div>
+                      <div className="col-span-2">Due Date</div>
+                      <div className="col-span-2 text-right">Monthly</div>
+                    </div>
+                    {category.items.map((item, itemIndex) => {
+                      const monthlyAmount = convertToMonthly(item.amount, item.frequency);
+                      const dueDate = item.dueDate ? new Date(item.dueDate) : undefined;
+                      return (
+                        <div
+                          key={item.id}
+                          className="grid grid-cols-12 gap-2 p-2 border-b last:border-b-0 hover:bg-muted/30"
+                        >
+                          <div className="col-span-4 flex items-center text-sm">
+                            <span className="truncate">{item.category}</span>
+                          </div>
+                          <div className="col-span-2">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={item.amount || ""}
+                              onChange={(e) =>
+                                updateBudgetItem(
+                                  categoryIndex,
+                                  itemIndex,
+                                  "amount",
+                                  parseFloat(e.target.value) || 0
+                                )
+                              }
+                              placeholder="0.00"
+                              className="h-8 text-sm px-3"
+                            />
+                          </div>
+                          <div className="col-span-2">
+                            <select
+                              value={item.frequency}
+                              onChange={(e) =>
+                                updateBudgetItem(
+                                  categoryIndex,
+                                  itemIndex,
+                                  "frequency",
+                                  e.target.value as Frequency
+                                )
+                              }
+                              className="flex h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
+                            >
+                              <option value="weekly">Weekly</option>
+                              <option value="fortnight">Fortnight</option>
+                              <option value="monthly">Monthly</option>
+                              <option value="quarterly">Quarterly</option>
+                              <option value="annually">Annually</option>
+                            </select>
+                          </div>
+                          <div className="col-span-2">
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  className="h-8 w-full justify-start text-left font-normal text-sm px-3"
+                                >
+                                  <CalendarIcon className="mr-2 h-3 w-3" />
+                                  {dueDate ? format(dueDate, "MMM d") : "Pick date"}
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="start">
+                                <Calendar
+                                  selected={dueDate}
+                                  onSelect={(date) => {
+                                    updateBudgetItem(
+                                      categoryIndex,
+                                      itemIndex,
+                                      "dueDate",
+                                      date ? format(date, "yyyy-MM-dd") : undefined
+                                    );
+                                  }}
+                                  month={dueDate || currentMonth}
+                                  onMonthChange={(month) => setCurrentMonth(month)}
+                                />
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+                          <div className="col-span-2 flex items-center justify-end text-sm font-medium">
+                            ${monthlyAmount.toFixed(2)}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                  {category.items.map((item, itemIndex) => {
-                    const monthlyAmount = convertToMonthly(item.amount, item.frequency);
-                    const dueDate = item.dueDate ? new Date(item.dueDate) : undefined;
-                    return (
-                      <div
-                        key={item.id}
-                        className="grid grid-cols-12 gap-2 p-2 border-b last:border-b-0 hover:bg-muted/30"
-                      >
-                        <div className="col-span-4 flex items-center text-sm">
-                          {item.category}
-                        </div>
-                        <div className="col-span-2">
-                          <Input
-                            type="number"
-                            step="0.01"
-                            value={item.amount || ""}
-                            onChange={(e) =>
-                              updateBudgetItem(
-                                categoryIndex,
-                                itemIndex,
-                                "amount",
-                                parseFloat(e.target.value) || 0
-                              )
-                            }
-                            placeholder="0.00"
-                            className="h-8 text-sm"
-                          />
-                        </div>
-                        <div className="col-span-2">
-                          <select
-                            value={item.frequency}
-                            onChange={(e) =>
-                              updateBudgetItem(
-                                categoryIndex,
-                                itemIndex,
-                                "frequency",
-                                e.target.value as Frequency
-                              )
-                            }
-                            className="flex h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
-                          >
-                            <option value="weekly">Weekly</option>
-                            <option value="fortnight">Fortnight</option>
-                            <option value="monthly">Monthly</option>
-                            <option value="quarterly">Quarterly</option>
-                            <option value="annually">Annually</option>
-                          </select>
-                        </div>
-                        <div className="col-span-2">
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <Button
-                                variant="outline"
-                                className={cn(
-                                  "h-8 w-full justify-start text-left font-normal text-sm",
-                                  !dueDate && "text-muted-foreground"
-                                )}
-                              >
-                                <CalendarIcon className="mr-2 h-3 w-3" />
-                                {dueDate ? format(dueDate, "MMM d") : "Pick date"}
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                              <Calendar
-                                selected={dueDate}
-                                onSelect={(date) => {
+
+                  {/* Mobile Card Layout */}
+                  <div className="sm:hidden space-y-2 p-2">
+                    {category.items.map((item, itemIndex) => {
+                      const monthlyAmount = convertToMonthly(item.amount, item.frequency);
+                      const dueDate = item.dueDate ? new Date(item.dueDate) : undefined;
+                      return (
+                        <div
+                          key={item.id}
+                          className="border rounded-lg p-3 space-y-3 bg-card hover:bg-muted/30"
+                        >
+                          {/* Category Name */}
+                          <div className="font-medium text-sm">{item.category}</div>
+                          
+                          {/* Fields Grid */}
+                          <div className="grid grid-cols-2 gap-3">
+                            {/* Amount */}
+                            <div className="space-y-1">
+                              <Label className="text-xs text-muted-foreground">Amount</Label>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={item.amount || ""}
+                                onChange={(e) =>
                                   updateBudgetItem(
                                     categoryIndex,
                                     itemIndex,
-                                    "dueDate",
-                                    date ? format(date, "yyyy-MM-dd") : undefined
-                                  );
-                                }}
-                                month={dueDate || currentMonth}
-                                onMonthChange={(month) => setCurrentMonth(month)}
+                                    "amount",
+                                    parseFloat(e.target.value) || 0
+                                  )
+                                }
+                                placeholder="0.00"
+                                className="h-9 text-sm"
                               />
-                            </PopoverContent>
-                          </Popover>
+                            </div>
+                            
+                            {/* Frequency */}
+                            <div className="space-y-1">
+                              <Label className="text-xs text-muted-foreground">Frequency</Label>
+                              <select
+                                value={item.frequency}
+                                onChange={(e) =>
+                                  updateBudgetItem(
+                                    categoryIndex,
+                                    itemIndex,
+                                    "frequency",
+                                    e.target.value as Frequency
+                                  )
+                                }
+                                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                              >
+                                <option value="weekly">Weekly</option>
+                                <option value="fortnight">Fortnight</option>
+                                <option value="monthly">Monthly</option>
+                                <option value="quarterly">Quarterly</option>
+                                <option value="annually">Annually</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Due Date - Full Width */}
+                          <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground">Due Date</Label>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  className="h-9 w-full justify-start text-left font-normal text-sm px-3"
+                                >
+                                  <CalendarIcon className="mr-2 h-4 w-4" />
+                                  {dueDate ? format(dueDate, "MMM d, yyyy") : "Pick date"}
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="start">
+                                <Calendar
+                                  selected={dueDate}
+                                  onSelect={(date) => {
+                                    updateBudgetItem(
+                                      categoryIndex,
+                                      itemIndex,
+                                      "dueDate",
+                                      date ? format(date, "yyyy-MM-dd") : undefined
+                                    );
+                                  }}
+                                  month={dueDate || currentMonth}
+                                  onMonthChange={(month) => setCurrentMonth(month)}
+                                />
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+
+                          {/* Monthly Amount - Full Width */}
+                          <div className="flex items-center justify-between pt-1 border-t">
+                            <span className="text-xs text-muted-foreground">Monthly</span>
+                            <span className="text-sm font-semibold">${monthlyAmount.toFixed(2)}</span>
+                          </div>
                         </div>
-                        <div className="col-span-2 flex items-center justify-end text-sm font-medium">
-                          ${monthlyAmount.toFixed(2)}
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             );
