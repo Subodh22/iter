@@ -362,7 +362,9 @@ export default function CashflowCalendar({ transactions, onDateClick, onMonthCha
                       Starting Budget
                     </Label>
                     {isBudgetManuallySaved && (
-                      <CheckCircle2 className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" title="Manually saved" />
+                      <span title="Manually saved">
+                        <CheckCircle2 className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
+                      </span>
                     )}
                   </div>
                   <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 sm:mt-1">
