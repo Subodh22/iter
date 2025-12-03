@@ -675,7 +675,9 @@ export default function FinanceDashboard() {
               <div className="flex items-center gap-2">
                 <CardTitle className="text-xs sm:text-sm font-medium">Starting Budget</CardTitle>
                 {isBudgetManuallySaved && (
-                  <CheckCircle2 className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" title="Manually saved" />
+                  <span title="Manually saved">
+                    <CheckCircle2 className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
+                  </span>
                 )}
               </div>
               <Wallet className="h-3 w-3 sm:h-4 sm:w-4 text-blue-600" />
