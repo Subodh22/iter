@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, TrendingUp, TrendingDown, DollarSign, Calendar, Table2, ClipboardList, Wallet } from "lucide-react";
+import { Plus, TrendingUp, TrendingDown, DollarSign, Calendar, Table2, ClipboardList, Wallet, CheckCircle2 } from "lucide-react";
 import { format, startOfMonth, endOfMonth, subMonths, addMonths } from "date-fns";
 import CashflowCalendar from "./cashflow-calendar";
 import DateTransactionsDialog from "./date-transactions-dialog";
@@ -48,6 +48,7 @@ export default function FinanceDashboard() {
   const [view, setView] = useState<"calendar" | "sheets">("calendar");
   const [startingBudget, setStartingBudget] = useState<number>(0);
   const [isSavingBudget, setIsSavingBudget] = useState(false);
+  const [isBudgetManuallySaved, setIsBudgetManuallySaved] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState(true);
   const [formData, setFormData] = useState({
     type: "expense" as "income" | "expense",
@@ -387,6 +388,7 @@ export default function FinanceDashboard() {
       if (existingBudget?.starting_budget !== undefined) {
         const savedBudget = parseFloat(existingBudget.starting_budget.toString()) || 0;
         setStartingBudget(savedBudget);
+        setIsBudgetManuallySaved(true);
         return true;
       }
     }
@@ -395,6 +397,7 @@ export default function FinanceDashboard() {
     // This ensures accurate net balance carryover
     const calculatedBudget = await calculateStartingBudgetForMonth(targetMonth);
     setStartingBudget(calculatedBudget);
+    setIsBudgetManuallySaved(false);
     return true;
   }, [supabase, calculateStartingBudgetForMonth, calendarMonth]);
 
@@ -669,13 +672,25 @@ export default function FinanceDashboard() {
         <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-xs sm:text-sm font-medium">Starting Budget</CardTitle>
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-xs sm:text-sm font-medium">Starting Budget</CardTitle>
+                {isBudgetManuallySaved && (
+                  <CheckCircle2 className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" title="Manually saved" />
+                )}
+              </div>
               <Wallet className="h-3 w-3 sm:h-4 sm:w-4 text-blue-600" />
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                <div className="text-lg sm:text-2xl font-bold text-blue-600">
-                  ${startingBudget.toFixed(2)}
+                <div className="flex items-center gap-2">
+                  <div className="text-lg sm:text-2xl font-bold text-blue-600">
+                    ${startingBudget.toFixed(2)}
+                  </div>
+                  {isBudgetManuallySaved && (
+                    <span className="text-[10px] sm:text-xs text-muted-foreground" title="Manually saved">
+                      (Saved)
+                    </span>
+                  )}
                 </div>
               <Input
                 type="number"
@@ -734,6 +749,8 @@ export default function FinanceDashboard() {
                         if (Math.abs(savedValue - currentValue) > 0.01) {
                           setStartingBudget(savedValue);
                         }
+                        // Mark as manually saved
+                        setIsBudgetManuallySaved(true);
                       }
                       
                       // Trigger update in calendar to sync

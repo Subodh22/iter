@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ChevronLeft, ChevronRight, ArrowUp, ArrowDown } from "lucide-react";
+import { ChevronLeft, ChevronRight, ArrowUp, ArrowDown, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 
@@ -29,6 +29,7 @@ export default function CashflowCalendar({ transactions, onDateClick, onMonthCha
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [startingBudget, setStartingBudget] = useState<number>(0);
   const [isSavingBudget, setIsSavingBudget] = useState(false);
+  const [isBudgetManuallySaved, setIsBudgetManuallySaved] = useState<boolean>(false);
   const supabase = createClient();
 
   // Load starting budget for current month and calculate carryover
@@ -54,6 +55,8 @@ export default function CashflowCalendar({ transactions, onDateClick, onMonthCha
 
     if (monthlyBudget?.starting_budget !== undefined) {
       setStartingBudget(parseFloat(monthlyBudget.starting_budget.toString()) || 0);
+      // Don't assume it's manually saved on load - only show indicator when user explicitly saves
+      // This prevents showing indicator for auto-calculated budgets that were saved
     } else {
         // If no starting budget exists for this month, calculate from previous month
         const previousMonth = subMonths(currentMonth, 1);
@@ -354,11 +357,16 @@ export default function CashflowCalendar({ transactions, onDateClick, onMonthCha
             <div className="mb-4 p-3 sm:p-4 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
                 <div className="flex-1">
-                  <Label htmlFor="starting-budget-calendar" className="text-xs sm:text-sm font-medium">
-                    Starting Budget
-                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="starting-budget-calendar" className="text-xs sm:text-sm font-medium">
+                      Starting Budget
+                    </Label>
+                    {isBudgetManuallySaved && (
+                      <CheckCircle2 className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" title="Manually saved" />
+                    )}
+                  </div>
                   <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 sm:mt-1">
-                    Your initial budget balance for this month
+                    {isBudgetManuallySaved ? "Manually saved budget" : "Your initial budget balance for this month"}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -396,6 +404,8 @@ export default function CashflowCalendar({ transactions, onDateClick, onMonthCha
                           console.error("Error saving starting budget:", error);
                           alert("Failed to save starting budget. Please try again.");
                         } else {
+                          // Mark as manually saved
+                          setIsBudgetManuallySaved(true);
                           // Reload to ensure we have the latest value
                           await loadStartingBudget();
                         }
