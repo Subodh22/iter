@@ -32,7 +32,7 @@ interface RecurringTransaction {
   category: string;
   amount: number;
   description: string;
-  frequency: "daily" | "weekly" | "fortnight" | "monthly" | "yearly";
+  frequency: "daily" | "weekly" | "fortnight" | "monthly" | "quarterly" | "yearly";
   start_date: string;
   end_date?: string;
   next_occurrence: string;
@@ -57,7 +57,7 @@ export default function FinanceDashboard() {
     description: "",
     date: format(new Date(), "yyyy-MM-dd"),
     isRecurring: false,
-    frequency: "monthly" as "daily" | "weekly" | "fortnight" | "monthly" | "yearly",
+    frequency: "monthly" as "daily" | "weekly" | "fortnight" | "monthly" | "quarterly" | "yearly",
     endDate: "",
   });
   const supabase = createClient();
@@ -1022,7 +1022,7 @@ export default function FinanceDashboard() {
                     onChange={(e) =>
                       setFormData({
                         ...formData,
-                        frequency: e.target.value as "daily" | "weekly" | "fortnight" | "monthly" | "yearly",
+                        frequency: e.target.value as "daily" | "weekly" | "fortnight" | "monthly" | "quarterly" | "yearly",
                       })
                     }
                   >
@@ -1030,6 +1030,7 @@ export default function FinanceDashboard() {
                     <option value="weekly">Weekly</option>
                     <option value="fortnight">Fortnight (Every 2 weeks)</option>
                     <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
                     <option value="yearly">Yearly</option>
                   </select>
                 </div>

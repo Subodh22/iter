@@ -13,7 +13,7 @@ interface RecurringTransaction {
   type: "income" | "expense";
   category: string;
   amount: number;
-  frequency: "daily" | "weekly" | "fortnight" | "monthly" | "yearly";
+  frequency: "daily" | "weekly" | "fortnight" | "monthly" | "quarterly" | "yearly";
   start_date: string;
   end_date?: string;
   is_active: boolean;

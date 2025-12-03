@@ -14,7 +14,7 @@ interface RecurringTransaction {
   category: string;
   amount: number;
   description: string;
-  frequency: "daily" | "weekly" | "fortnight" | "monthly" | "yearly";
+  frequency: "daily" | "weekly" | "fortnight" | "monthly" | "quarterly" | "yearly";
   start_date: string;
   end_date?: string;
   next_occurrence: string;
