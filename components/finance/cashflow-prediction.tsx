@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { format, startOfMonth, addMonths, eachMonthOfInterval, isBefore, isAfter } from "date-fns";
+import { format, startOfMonth, addMonths, addWeeks, addDays, addYears, eachMonthOfInterval, isBefore, isAfter, isWithinInterval, parseISO } from "date-fns";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from "recharts";
 import { TrendingUp, TrendingDown } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -32,7 +32,7 @@ interface MonthlyProjection {
 export default function CashflowPrediction() {
   const [recurringTransactions, setRecurringTransactions] = useState<RecurringTransaction[]>([]);
   const [startingBudget, setStartingBudget] = useState<number>(0);
-  const [currentMonthTransactions, setCurrentMonthTransactions] = useState<any[]>([]);
+  const [allTransactions, setAllTransactions] = useState<Record<string, any[]>>({});
   const [loading, setLoading] = useState(true);
   const [monthsToProject, setMonthsToProject] = useState(6);
   const supabase = createClient();
@@ -59,8 +59,6 @@ export default function CashflowPrediction() {
     // Load current month's starting budget
     const currentMonth = new Date();
     const monthKey = format(startOfMonth(currentMonth), "yyyy-MM-dd");
-    const monthStart = startOfMonth(currentMonth);
-    const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
     
     const { data: monthlyBudget } = await supabase
       .from("monthly_starting_budgets")
@@ -73,18 +71,35 @@ export default function CashflowPrediction() {
       setStartingBudget(parseFloat(monthlyBudget.starting_budget.toString()) || 0);
     }
 
-    // Load actual transactions for current month to use for December projection
+    // Load actual transactions for all months in projection range
+    const projectionStart = startOfMonth(currentMonth);
+    const projectionEnd = addMonths(projectionStart, monthsToProject);
+    const projectionEndDate = new Date(projectionEnd.getFullYear(), projectionEnd.getMonth() + 1, 0);
+    
     const { data: transactions } = await supabase
       .from("transactions")
-      .select("type, amount")
+      .select("type, amount, date")
       .eq("user_id", user.id)
-      .gte("date", format(monthStart, "yyyy-MM-dd"))
-      .lte("date", format(monthEnd, "yyyy-MM-dd"));
+      .gte("date", format(projectionStart, "yyyy-MM-dd"))
+      .lte("date", format(projectionEndDate, "yyyy-MM-dd"));
 
-    setCurrentMonthTransactions(transactions || []);
+    // Group transactions by month
+    const transactionsByMonth: Record<string, any[]> = {};
+    if (transactions) {
+      transactions.forEach((transaction) => {
+        const transactionDate = new Date(transaction.date);
+        const monthKey = format(startOfMonth(transactionDate), "yyyy-MM-dd");
+        if (!transactionsByMonth[monthKey]) {
+          transactionsByMonth[monthKey] = [];
+        }
+        transactionsByMonth[monthKey].push(transaction);
+      });
+    }
+
+    setAllTransactions(transactionsByMonth);
 
     setLoading(false);
-  }, [supabase]);
+  }, [supabase, monthsToProject]);
 
   useEffect(() => {
     loadData();
@@ -101,58 +116,149 @@ export default function CashflowPrediction() {
       window.removeEventListener("budgetUpdated", handleBudgetUpdate);
       window.removeEventListener("recurringTransactionDeleted", handleBudgetUpdate);
     };
-  }, [loadData]);
+  }, [loadData, monthsToProject]);
 
-  // Calculate monthly amount based on frequency
-  const getMonthlyAmount = (amount: number, frequency: string): number => {
-    switch (frequency) {
-      case "daily":
-        return amount * 30; // Approximate
-      case "weekly":
-        return amount * 4.33; // Average weeks per month
-      case "fortnight":
-        return amount * 2.17; // Average fortnights per month
-      case "monthly":
-        return amount;
-      case "yearly":
-        return amount / 12;
-      default:
-        return amount;
-    }
-  };
-
-  // Calculate if a transaction should occur in a given month
-  const shouldOccurInMonth = (
+  // Calculate actual occurrences of a transaction in a specific month
+  const getMonthlyAmount = (
     transaction: RecurringTransaction,
     monthStart: Date,
     monthEnd: Date
-  ): boolean => {
-    const startDate = new Date(transaction.start_date);
+  ): number => {
+    const startDate = parseISO(transaction.start_date);
     startDate.setHours(0, 0, 0, 0);
-    const endDate = transaction.end_date ? new Date(transaction.end_date) : null;
+    const endDate = transaction.end_date ? parseISO(transaction.end_date) : null;
     if (endDate) endDate.setHours(23, 59, 59, 999);
 
-    // Check if transaction has started (monthStart is on or after start_date)
-    const hasStarted = monthStart >= startDate || 
-                      (monthStart.getFullYear() === startDate.getFullYear() && 
-                       monthStart.getMonth() === startDate.getMonth());
-    
-    if (!hasStarted) return false;
+    const amount = parseFloat(transaction.amount.toString());
+    const frequency = transaction.frequency;
 
-    // Check if transaction has ended (only if end_date exists)
-    if (endDate) {
-      const hasEnded = monthEnd < endDate;
-      if (!hasEnded && monthEnd.getTime() !== endDate.getTime()) {
-        return true;
+    // If transaction hasn't started yet, return 0
+    if (startDate > monthEnd) return 0;
+
+    // If transaction has ended, return 0
+    if (endDate && endDate < monthStart) return 0;
+
+    let occurrences = 0;
+    let currentDate = new Date(startDate);
+
+    // Skip ahead if start date is before the month we're checking
+    // This optimizes the calculation for transactions that started earlier
+    if (currentDate < monthStart) {
+      // Calculate how many intervals to skip to get to the month we're checking
+      if (frequency === "monthly") {
+        // Find the first occurrence in or after this month
+        while (currentDate < monthStart) {
+          currentDate = addMonths(currentDate, 1);
+        }
+      } else if (frequency === "yearly") {
+        while (currentDate < monthStart) {
+          currentDate = addYears(currentDate, 1);
+        }
+      } else if (frequency === "quarterly") {
+        while (currentDate < monthStart) {
+          currentDate = addMonths(currentDate, 3);
+        }
+      } else if (frequency === "weekly") {
+        while (currentDate < monthStart) {
+          currentDate = addWeeks(currentDate, 1);
+        }
+      } else if (frequency === "fortnight") {
+        while (currentDate < monthStart) {
+          currentDate = addWeeks(currentDate, 2);
+        }
+      } else if (frequency === "daily") {
+        currentDate = new Date(monthStart);
       }
-      // Check if end date falls within this month
-      if (endDate >= monthStart && endDate <= monthEnd) {
-        return true;
-      }
-      return false;
     }
 
-    return true;
+    // Now count occurrences within this month
+    if (frequency === "monthly") {
+      // Find the occurrence(s) in this month
+      while (currentDate <= monthEnd) {
+        if (isWithinInterval(currentDate, { start: monthStart, end: monthEnd })) {
+          // Check if transaction is still active
+          if (!endDate || currentDate <= endDate) {
+            occurrences++;
+          }
+        }
+        // Move to next month
+        currentDate = addMonths(currentDate, 1);
+        // Stop if we've gone past the month we're checking
+        if (currentDate > monthEnd) break;
+      }
+    } else if (frequency === "yearly") {
+      // Find the occurrence in this month (if any)
+      while (currentDate <= monthEnd) {
+        if (isWithinInterval(currentDate, { start: monthStart, end: monthEnd })) {
+          // Check if transaction is still active
+          if (!endDate || currentDate <= endDate) {
+            occurrences++;
+          }
+        }
+        // Move to next year
+        currentDate = addYears(currentDate, 1);
+        // Stop if we've gone past the month we're checking
+        if (currentDate > monthEnd) break;
+      }
+    } else if (frequency === "quarterly") {
+      // Quarterly means every 3 months
+      while (currentDate <= monthEnd) {
+        if (isWithinInterval(currentDate, { start: monthStart, end: monthEnd })) {
+          // Check if transaction is still active
+          if (!endDate || currentDate <= endDate) {
+            occurrences++;
+          }
+        }
+        // Move to next quarter (3 months)
+        currentDate = addMonths(currentDate, 3);
+        // Stop if we've gone past the month we're checking
+        if (currentDate > monthEnd) break;
+      }
+    } else if (frequency === "weekly") {
+      // Count all weekly occurrences in this month
+      while (currentDate <= monthEnd) {
+        if (isWithinInterval(currentDate, { start: monthStart, end: monthEnd })) {
+          // Check if transaction is still active
+          if (!endDate || currentDate <= endDate) {
+            occurrences++;
+          }
+        }
+        // Move to next week
+        currentDate = addWeeks(currentDate, 1);
+        // Stop if we've gone past the month we're checking
+        if (currentDate > monthEnd) break;
+      }
+    } else if (frequency === "fortnight") {
+      // Count all fortnightly occurrences in this month
+      while (currentDate <= monthEnd) {
+        if (isWithinInterval(currentDate, { start: monthStart, end: monthEnd })) {
+          // Check if transaction is still active
+          if (!endDate || currentDate <= endDate) {
+            occurrences++;
+          }
+        }
+        // Move to next fortnight (2 weeks)
+        currentDate = addWeeks(currentDate, 2);
+        // Stop if we've gone past the month we're checking
+        if (currentDate > monthEnd) break;
+      }
+    } else if (frequency === "daily") {
+      // Count all daily occurrences in this month
+      while (currentDate <= monthEnd) {
+        if (isWithinInterval(currentDate, { start: monthStart, end: monthEnd })) {
+          // Check if transaction is still active
+          if (!endDate || currentDate <= endDate) {
+            occurrences++;
+          }
+        }
+        // Move to next day
+        currentDate = addDays(currentDate, 1);
+        // Stop if we've gone past the month we're checking
+        if (currentDate > monthEnd) break;
+      }
+    }
+
+    return amount * occurrences;
   };
 
   // Generate projections for future months
@@ -179,9 +285,12 @@ export default function CashflowPrediction() {
       let monthlyIncome = 0;
       let monthlyExpenses = 0;
 
-      // For current month (December), use actual transactions if available
-      if (isCurrentMonth && currentMonthTransactions.length > 0) {
-        currentMonthTransactions.forEach((transaction) => {
+      // Check if we have actual transactions for this month
+      const monthTransactions = allTransactions[monthKey] || [];
+      
+      if (monthTransactions.length > 0) {
+        // Use actual transactions if available
+        monthTransactions.forEach((transaction) => {
           if (transaction.type === "income") {
             monthlyIncome += parseFloat(transaction.amount.toString());
           } else {
@@ -189,19 +298,14 @@ export default function CashflowPrediction() {
           }
         });
       } else {
-        // For future months, calculate from recurring transactions
+        // If no actual transactions, calculate from recurring transactions
         recurringTransactions.forEach((transaction) => {
-          if (shouldOccurInMonth(transaction, monthStart, monthEnd)) {
-            const monthlyAmount = getMonthlyAmount(
-              parseFloat(transaction.amount.toString()),
-              transaction.frequency
-            );
+          const monthlyAmount = getMonthlyAmount(transaction, monthStart, monthEnd);
 
-            if (transaction.type === "income") {
-              monthlyIncome += monthlyAmount;
-            } else {
-              monthlyExpenses += monthlyAmount;
-            }
+          if (transaction.type === "income") {
+            monthlyIncome += monthlyAmount;
+          } else {
+            monthlyExpenses += monthlyAmount;
           }
         });
       }
@@ -223,7 +327,7 @@ export default function CashflowPrediction() {
     });
 
     return monthlyData;
-  }, [recurringTransactions, startingBudget, monthsToProject, loading, currentMonthTransactions]);
+  }, [recurringTransactions, startingBudget, monthsToProject, loading, allTransactions]);
 
   if (loading) {
     return (
